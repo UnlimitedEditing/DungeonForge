@@ -36,7 +36,7 @@ const ROAM_PAUSE_MIN = 1.0;
 const ROAM_PAUSE_MAX = 3.0;
 const ROAM_BOUND     = ROOM_SIZE / 2 - 1.8;
 
-const WALK_SHEET_FPS = 8;    // animation frames per second for walk cycle sheets
+const WALK_STEP_DIST = 0.6;  // world units of movement per walk-cycle frame advance
 const SPRITE_WORLD_H = 2.2;  // world-space height used for all sprites
 
 const SPAWN_RING = [
@@ -939,8 +939,8 @@ function updateRoaming(dt) {
         e.mesh.material = sheet.mat;
         e.mesh.scale.x  = SPRITE_WORLD_H * sheet.frameAspect;
       }
-      e.walkFrameTimer = (e.walkFrameTimer ?? 0) + dt;
-      const frameIdx = Math.floor(e.walkFrameTimer * WALK_SHEET_FPS) % sheet.frameCount;
+      e.walkFrameTimer = (e.walkFrameTimer ?? 0) + e.roam.speed * dt;
+      const frameIdx = Math.floor(e.walkFrameTimer / WALK_STEP_DIST) % sheet.frameCount;
       sheet.tex.offset.x = frameIdx / sheet.frameCount;
 
     } else if (e.frontMat) {

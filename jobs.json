@@ -1,0 +1,90 @@
+{
+  "jobs": [
+    {
+      "id": "bebc4260",
+      "profile_id": "edf825ff80d5",
+      "prompt": "skeleton priest",
+      "full_prompt": "skeleton priest, single character full body, standing pose facing forward, centered composition, clean solid white background, no shadows on the floor, soft even lighting, retro fantasy game character illustration, clear silhouette, high contrast against the background",
+      "status": "done",
+      "sprite_name": "bebc4260.png",
+      "source_url": "https://piratediffusion1.s3.amazonaws.com/renders2/5Ap8xV/5Ap8xV-workflow2938v1-0-ZK2V0LRKZ.png",
+      "variant_job_ids": {
+        "walk": "f2aab813",
+        "corpse": "6c16e814",
+        "damage": "f1779c80",
+        "back": "b2f12196"
+      },
+      "error": null,
+      "created_at": 1778598097.549937,
+      "finished_at": 1778598139.1184416
+    },
+    {
+      "id": "ddcb15fc",
+      "profile_id": "edf825ff80d5",
+      "prompt": "zombie",
+      "full_prompt": "zombie, single character full body, standing pose facing forward, centered composition, clean solid white background, no shadows on the floor, soft even lighting, retro fantasy game character illustration, clear silhouette, high contrast against the background",
+      "status": "done",
+      "sprite_name": "ddcb15fc.png",
+      "source_url": "https://piratediffusion1.s3.amazonaws.com/renders2/QGbLpQ/QGbLpQ-workflow2507v8-0-ZLFOSAAJV.png",
+      "variant_job_ids": {
+        "walk": "efbec7e9",
+        "corpse": "9cb0446b",
+        "damage": "17524bbb",
+        "back": "64abb49f"
+      },
+      "error": null,
+      "created_at": 1778599570.1921847,
+      "finished_at": 1778599600.2755868
+    }
+  ],
+  "variant_jobs": [
+    {
+      "id": "f2aab813",
+      "sprite_job_id": "bebc4260",
+      "variant_type": "walk",
+      "prompt": "{user_prompt}, walking forward, smooth natural gait cycle, looping walk animation, seamless motion",
+      "status": "done",
+      "sprite_name": "f2aab813_walk_sheet.png",
+      "frame_count": 4,
+      "error": null,
+      "created_at": 1778598139.1182556,
+      "finished_at": 1778598462.6126418
+    },
+    {
+      "id": "6c16e814",
+      "sprite_job_id": "bebc4260",
+      "variant_type": "corpse",
+      "prompt": "lying dead on the ground, lifeless, collapsed posture, full body visible, centered, clean solid white background",
+      "status": "done",
+      "sprite_name": "6c16e814_corpse.png",
+      "frame_count": 1,
+      "error": null,
+      "created_at": 1778598139.1183455,
+      "finished_at": 1778598497.9532945
+    },
+    {
+      "id": "f1779c80",
+      "sprite_job_id": "bebc4260",
+      "variant_type": "damage",
+      "prompt": "recoiling from a hit, flinching, body twisting away from impact, full body visible, centered, clean solid white background",
+      "status": "done",
+      "sprite_name": "f1779c80_damage.png",
+      "frame_count": 1,
+      "error": null,
+      "created_at": 1778598139.118374,
+      "finished_at": 1778598597.9378128
+    },
+    {
+      "id": "b2f12196",
+      "sprite_job_id": "bebc4260",
+      "variant_type": "back",
+      "prompt": "turned around, facing away, rear view, back of body visible, full body visible, centered, clean solid white background",
+      "status": "done",
+      "sprite_name": "b2f12196_back_sheet.png",
+      "frame_count": 4,
+      "error": null,
+      "created_at": 1778598139.11839,
+      "finished_at": 1778598860.777324
+    }
+  ]
+}
