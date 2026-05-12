@@ -6,15 +6,17 @@ Responsibilities:
   2. Expose runtime config (workflows, prompt templates, lore) via /config.
   3. Accept render briefs (prompt + profile_id) from the game via HTTP.
   4. Submit sprite renders to Graydient (txt2img workflow).
-  5. Auto-queue a walk animation job for every completed sprite
-     (img2vid workflow using the original Graydient URL as init_image).
-  6. Run sprite results through rembg for clean alpha; save videos directly.
+  5. Auto-queue variant state jobs for every completed sprite — walk, corpse,
+     damage, back — via an image-editing workflow (edit-qwen-rapid by default)
+     using the original Graydient URL as init_image.
+  6. Run all image results through rembg for clean alpha.
   7. Serve the Three.js game itself from the same origin.
 
 All tunable values (workflows, prompt templates, lore) live in config.py
 and are read at job-creation time so changes take effect without restart.
 """
 
+import json
 import logging
 import os
 import queue
@@ -43,13 +45,11 @@ dotenv.load_dotenv()
 # ---------- paths ----------
 
 SPRITES_DIR = os.path.join(os.path.dirname(__file__), "sprites")
-ANIMS_DIR   = os.path.join(os.path.dirname(__file__), "anims")
 GAME_DIR    = os.path.join(os.path.dirname(__file__), "game")
 HOST        = os.environ.get("FORGE_HOST", "127.0.0.1")
 PORT        = int(os.environ.get("FORGE_PORT", "8000"))
 
 os.makedirs(SPRITES_DIR, exist_ok=True)
-os.makedirs(ANIMS_DIR,   exist_ok=True)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("forge")
@@ -58,17 +58,40 @@ log = logging.getLogger("forge")
 # Templates are read from config at job-creation time so player edits
 # in the config panel take effect immediately without a server restart.
 
-VARIANT_TYPES = ("corpse", "damage", "back")
+VARIANT_TYPES = ("walk", "corpse", "damage", "back")
+
+# Key-pose suffixes for walk cycle frames.
+# Appended to the user prompt when rendering each frame of a sprite sheet.
+# Frame count can be 2 or 4; first N suffixes are used.
+WALK_FRAME_SUFFIXES = [
+    "walk cycle frame 1 of 4: left foot forward contact pose, right arm swinging forward, weight transferring, mid-stride",
+    "walk cycle frame 2 of 4: passing position, weight on left leg, right leg swinging through, slight body dip",
+    "walk cycle frame 3 of 4: right foot forward contact pose, left arm swinging forward, weight transferring, mid-stride",
+    "walk cycle frame 4 of 4: passing position, weight on right leg, left leg swinging through, slight body dip",
+]
+BACK_FRAME_SUFFIXES = [
+    "back view walk cycle frame 1 of 4: left foot forward seen from behind, right arm forward, mid-stride",
+    "back view walk cycle frame 2 of 4: passing position from behind, weight on left leg, right leg swinging through, slight dip",
+    "back view walk cycle frame 3 of 4: right foot forward seen from behind, left arm forward, mid-stride",
+    "back view walk cycle frame 4 of 4: passing position from behind, weight on right leg, left leg swinging through, slight dip",
+]
 
 def build_sprite_prompt(user_prompt: str) -> str:
     return config.get("sprite_prompt_template").format(user_prompt=user_prompt.strip())
 
-def build_walk_prompt(user_prompt: str) -> str:
-    return config.get("walk_prompt_template").format(user_prompt=user_prompt.strip())
+def build_variant_prompt(variant_type: str) -> str:
+    """Return the pose-only prompt for a static variant. No character description —
+    the edit workflow's init_image already carries identity."""
+    return config.get(f"{variant_type}_prompt_template")
 
-def build_variant_prompt(user_prompt: str, variant_type: str) -> str:
-    tmpl = config.get(f"{variant_type}_prompt_template")
-    return tmpl.format(user_prompt=user_prompt.strip())
+def build_frame_prompt(suffix: str) -> str:
+    """Return the pose-only prompt for a single walk-cycle frame. No character
+    description — re-stating features in an edit prompt causes identity drift."""
+    return (
+        f"{suffix}, "
+        "full body visible, centered composition, clean solid white background, "
+        "no shadows on the floor, clear silhouette"
+    )
 
 # ---------- models ----------
 
@@ -83,9 +106,9 @@ class LoginRequest(BaseModel):
 
 class ConfigUpdate(BaseModel):
     workflow: str
-    anim_workflow: str
+    variant_workflow: str
+    variant_strength: float
     sprite_prompt_template: str
-    walk_prompt_template: str
     lore: str
 
 class JobRequest(BaseModel):
@@ -103,19 +126,8 @@ class Job(BaseModel):
     full_prompt: str
     status: str           # queued | rendering | processing | done | failed
     sprite_name: Optional[str] = None
-    source_url: Optional[str] = None   # pre-rembg Graydient URL; init_image for animation
-    anim_job_id: Optional[str] = None
+    source_url: Optional[str] = None   # pre-rembg Graydient URL; init_image for variants
     variant_job_ids: dict = {}         # variant_type -> job_id
-    error: Optional[str] = None
-    created_at: float
-    finished_at: Optional[float] = None
-
-class AnimJob(BaseModel):
-    id: str
-    sprite_job_id: str
-    prompt: str
-    status: str            # queued | rendering | processing | done | failed
-    anim_name: Optional[str] = None
     error: Optional[str] = None
     created_at: float
     finished_at: Optional[float] = None
@@ -123,25 +135,114 @@ class AnimJob(BaseModel):
 class VariantJob(BaseModel):
     id: str
     sprite_job_id: str
-    variant_type: str      # corpse | damage | back
+    variant_type: str      # walk | corpse | damage | back
     prompt: str
     status: str            # queued | rendering | processing | done | failed
     sprite_name: Optional[str] = None
+    frame_count: int = 1   # 1 for static variants; N for sprite-sheet walk/back cycles
     error: Optional[str] = None
     created_at: float
     finished_at: Optional[float] = None
 
 JOBS:         dict[str, Job]        = {}
-ANIM_JOBS:    dict[str, AnimJob]    = {}
 VARIANT_JOBS: dict[str, VariantJob] = {}
 
-JOB_QUEUE:      "queue.Queue[str]" = queue.Queue()
-ANIM_JOB_QUEUE: "queue.Queue[str]" = queue.Queue()
+JOB_QUEUE:         "queue.Queue[str]" = queue.Queue()
 VARIANT_JOB_QUEUE: "queue.Queue[str]" = queue.Queue()
 
 JOBS_LOCK         = threading.Lock()
-ANIM_JOBS_LOCK    = threading.Lock()
 VARIANT_JOBS_LOCK = threading.Lock()
+_PERSIST_LOCK     = threading.Lock()
+
+_JOBS_PATH = os.path.join(os.path.dirname(__file__), "jobs.json")
+
+
+def _persist_snapshot() -> None:
+    """Write all completed jobs and variant jobs to disk. Called from worker
+    threads after each completion — safe to call with no locks held."""
+    with _PERSIST_LOCK:
+        with JOBS_LOCK:
+            done_jobs = [j.model_dump() for j in JOBS.values() if j.status == "done"]
+        with VARIANT_JOBS_LOCK:
+            done_variants = [v.model_dump() for v in VARIANT_JOBS.values() if v.status == "done"]
+        try:
+            with open(_JOBS_PATH, "w") as f:
+                json.dump({"jobs": done_jobs, "variant_jobs": done_variants}, f, indent=2)
+        except OSError:
+            log.exception("failed to persist jobs snapshot")
+
+
+def _load_snapshot() -> None:
+    if not os.path.exists(_JOBS_PATH):
+        return
+    try:
+        with open(_JOBS_PATH) as f:
+            data = json.load(f)
+        for jd in data.get("jobs", []):
+            try:
+                JOBS[jd["id"]] = Job(**jd)
+            except Exception as e:
+                log.warning("skipping corrupt job entry: %s", e)
+        for vd in data.get("variant_jobs", []):
+            try:
+                VARIANT_JOBS[vd["id"]] = VariantJob(**vd)
+            except Exception as e:
+                log.warning("skipping corrupt variant entry: %s", e)
+        log.info("restored %d jobs / %d variants from disk",
+                 len(data.get("jobs", [])), len(data.get("variant_jobs", [])))
+    except Exception:
+        log.exception("failed to load jobs snapshot — starting fresh")
+
+
+_load_snapshot()
+
+# ---------- helpers ----------
+
+def render_variant_frame(prompt: str, source_url: str, api_key: str, label: str) -> str:
+    """Render one frame via the edit workflow. Returns the Graydient image URL."""
+    collected: dict = {"url": None}
+
+    def on_event(event, _label=label):
+        if "rendering_done" in event:
+            data = event["rendering_done"]
+            info = graydient_client.render_info(data["render_hash"], api_key)
+            collected["url"] = graydient_client.extract_image_url(info)
+            log.info("[%s] frame url=%s", _label, collected["url"])
+
+    graydient_client.render_create(
+        prompt=prompt,
+        workflow=config.get("variant_workflow"),
+        api_key=api_key,
+        on_event=on_event,
+        init_image=source_url,
+        strength=float(config.get("variant_strength")),
+    )
+    if not collected["url"]:
+        raise RuntimeError("render stream closed with no URL")
+    return collected["url"]
+
+
+def stitch_frames(frame_paths: list[str]) -> Image.Image:
+    """
+    Combine rembg'd frames into a horizontal sprite sheet with uniform-width columns.
+    Frames are padded to the same dimensions so UV frame boundaries are evenly spaced
+    (frameIndex / N gives the exact left edge of each frame).
+    """
+    frames = [Image.open(p).convert("RGBA") for p in frame_paths]
+    max_h = max(f.height for f in frames)
+    max_w = max(f.width  for f in frames)
+    n = len(frames)
+    sheet = Image.new("RGBA", (max_w * n, max_h), (0, 0, 0, 0))
+    for i, f in enumerate(frames):
+        # Scale up to max_h if shorter, preserving aspect ratio
+        if f.height < max_h:
+            new_w = max(1, int(f.width * max_h / f.height))
+            f = f.resize((new_w, max_h), Image.LANCZOS)
+        # Centre horizontally within its column slot
+        x = i * max_w + (max_w - f.width) // 2
+        sheet.paste(f, (x, 0), f)
+    return sheet
+
 
 # ---------- sprite worker ----------
 
@@ -193,7 +294,7 @@ def render_worker():
             log.info("[%s] starting sprite: %s", job.id, job.prompt)
             url = render_one(job, api_key)
 
-            # Store the original Graydient URL before rembg — animation needs it.
+            # Store the original Graydient URL before rembg — variants use it as init_image.
             with JOBS_LOCK:
                 job.source_url = url
                 job.status = "processing"
@@ -205,24 +306,11 @@ def render_worker():
             sprite_name = f"{job.id}.png"
             process_sprite(resp.content, os.path.join(SPRITES_DIR, sprite_name))
 
-            # Auto-queue the walk animation using the original render as init_image.
-            anim_id = uuid.uuid4().hex[:8]
-            anim_job = AnimJob(
-                id=anim_id,
-                sprite_job_id=job.id,
-                prompt=job.prompt,
-                status="queued",
-                created_at=time.time(),
-            )
-            with ANIM_JOBS_LOCK:
-                ANIM_JOBS[anim_id] = anim_job
-            ANIM_JOB_QUEUE.put(anim_id)
-
-            # Auto-queue variant states (corpse, damage, back) via img2img.
+            # Auto-queue all variant states via the edit workflow.
             variant_ids: dict = {}
             for vtype in VARIANT_TYPES:
                 vid = uuid.uuid4().hex[:8]
-                vprompt = build_variant_prompt(job.prompt, vtype)
+                vprompt = build_variant_prompt(vtype)
                 vj = VariantJob(
                     id=vid, sprite_job_id=job.id, variant_type=vtype,
                     prompt=vprompt, status="queued", created_at=time.time(),
@@ -233,13 +321,13 @@ def render_worker():
                 variant_ids[vtype] = vid
 
             with JOBS_LOCK:
-                job.sprite_name   = sprite_name
-                job.anim_job_id   = anim_id
+                job.sprite_name     = sprite_name
                 job.variant_job_ids = variant_ids
-                job.status        = "done"
-                job.finished_at   = time.time()
+                job.status          = "done"
+                job.finished_at     = time.time()
 
-            log.info("[%s] sprite saved, walk anim %s, variants %s", job.id, anim_id, variant_ids)
+            log.info("[%s] sprite saved, variants queued: %s", job.id, variant_ids)
+            _persist_snapshot()
 
         except Exception:
             log.exception("[%s] sprite FAILED", job_id)
@@ -249,85 +337,6 @@ def render_worker():
                     JOBS[job_id].finished_at = time.time()
         finally:
             JOB_QUEUE.task_done()
-
-# ---------- animation worker ----------
-
-def anim_worker():
-    log.info("animation worker started")
-    while True:
-        anim_id = ANIM_JOB_QUEUE.get()
-        try:
-            with ANIM_JOBS_LOCK:
-                anim_job = ANIM_JOBS[anim_id]
-                anim_job.status = "rendering"
-
-            with JOBS_LOCK:
-                sprite_job = JOBS[anim_job.sprite_job_id]
-
-            api_key = profiles.get_api_key(sprite_job.profile_id)
-            if not api_key:
-                raise RuntimeError(f"no api key for profile {sprite_job.profile_id}")
-
-            source_url = sprite_job.source_url
-            if not source_url:
-                raise RuntimeError("sprite job has no source_url for animation")
-
-            walk_prompt = build_walk_prompt(anim_job.prompt)
-            collected = {"url": None}
-
-            def on_event(event):
-                if "rendering_done" in event:
-                    data = event["rendering_done"]
-                    info = graydient_client.render_info(data["render_hash"], api_key)
-                    collected["url"] = graydient_client.extract_image_url(info)
-                    log.info("[anim %s] done, url=%s", anim_id, collected["url"])
-
-            anim_workflow = config.get("anim_workflow")
-            log.info("[anim %s] submitting walk anim (workflow=%s)", anim_id, anim_workflow)
-            graydient_client.render_create(
-                prompt=walk_prompt,
-                workflow=anim_workflow,
-                api_key=api_key,
-                on_event=on_event,
-                init_image=source_url,
-            )
-
-            if not collected["url"]:
-                raise RuntimeError("animation stream closed with no URL")
-
-            with ANIM_JOBS_LOCK:
-                anim_job.status = "processing"
-
-            log.info("[anim %s] downloading %s", anim_id, collected["url"])
-            resp = requests.get(collected["url"], timeout=300)
-            resp.raise_for_status()
-
-            ext = ".mp4"
-            url_lower = collected["url"].lower()
-            if ".webm" in url_lower:
-                ext = ".webm"
-            elif ".gif" in url_lower:
-                ext = ".gif"
-
-            anim_name = f"{anim_id}_walk{ext}"
-            with open(os.path.join(ANIMS_DIR, anim_name), "wb") as f:
-                f.write(resp.content)
-
-            with ANIM_JOBS_LOCK:
-                anim_job.anim_name = anim_name
-                anim_job.status = "done"
-                anim_job.finished_at = time.time()
-
-            log.info("[anim %s] saved %s", anim_id, anim_name)
-
-        except Exception:
-            log.exception("[anim %s] FAILED", anim_id)
-            with ANIM_JOBS_LOCK:
-                if anim_id in ANIM_JOBS:
-                    ANIM_JOBS[anim_id].status = "failed"
-                    ANIM_JOBS[anim_id].finished_at = time.time()
-        finally:
-            ANIM_JOB_QUEUE.task_done()
 
 def variant_worker():
     log.info("variant worker started")
@@ -346,42 +355,77 @@ def variant_worker():
             if not api_key or not source_url:
                 raise RuntimeError("missing api key or source url for variant")
 
-            collected = {"url": None}
-            def on_event(event, _vid=var_id):
-                if "rendering_done" in event:
-                    data = event["rendering_done"]
-                    info = graydient_client.render_info(data["render_hash"], api_key)
-                    collected["url"] = graydient_client.extract_image_url(info)
-                    log.info("[variant %s] done url=%s", _vid, collected["url"])
+            if vj.variant_type in ("walk", "back"):
+                # ── Sprite sheet: render N key-pose frames, rembg each, stitch ──
+                frame_count = int(config.get("walk_frame_count"))
+                suffixes = (WALK_FRAME_SUFFIXES if vj.variant_type == "walk"
+                            else BACK_FRAME_SUFFIXES)[:frame_count]
 
-            workflow = config.get("workflow")
-            log.info("[variant %s] submitting %s (workflow=%s)", var_id, vj.variant_type, workflow)
-            graydient_client.render_create(
-                prompt=vj.prompt,
-                workflow=workflow,
-                api_key=api_key,
-                on_event=on_event,
-                init_image=source_url,
-            )
+                log.info("[variant %s] walk sheet: %d frames (type=%s)",
+                         var_id, frame_count, vj.variant_type)
 
-            if not collected["url"]:
-                raise RuntimeError("variant stream closed with no URL")
+                frame_paths: list[str] = []
+                for i, suffix in enumerate(suffixes):
+                    frame_prompt = build_frame_prompt(suffix)
+                    label = f"{var_id}/{vj.variant_type}/f{i}"
+                    log.info("[variant %s] rendering frame %d/%d", var_id, i + 1, frame_count)
 
-            with VARIANT_JOBS_LOCK:
-                vj.status = "processing"
+                    frame_url = render_variant_frame(frame_prompt, source_url, api_key, label)
 
-            resp = requests.get(collected["url"], timeout=120)
-            resp.raise_for_status()
+                    with VARIANT_JOBS_LOCK:
+                        vj.status = "processing"
 
-            sprite_name = f"{var_id}_{vj.variant_type}.png"
-            process_sprite(resp.content, os.path.join(SPRITES_DIR, sprite_name))
+                    resp = requests.get(frame_url, timeout=120)
+                    resp.raise_for_status()
 
-            with VARIANT_JOBS_LOCK:
-                vj.sprite_name  = sprite_name
-                vj.status       = "done"
-                vj.finished_at  = time.time()
+                    frame_path = os.path.join(SPRITES_DIR, f"{var_id}_{vj.variant_type}_f{i}.png")
+                    process_sprite(resp.content, frame_path)
+                    frame_paths.append(frame_path)
 
-            log.info("[variant %s] saved %s", var_id, sprite_name)
+                    with VARIANT_JOBS_LOCK:
+                        vj.status = "rendering"  # back to rendering while more frames remain
+
+                sheet_img  = stitch_frames(frame_paths)
+                sprite_name = f"{var_id}_{vj.variant_type}_sheet.png"
+                sheet_img.save(os.path.join(SPRITES_DIR, sprite_name), "PNG")
+
+                # Clean up per-frame PNGs
+                for p in frame_paths:
+                    try:
+                        os.remove(p)
+                    except OSError:
+                        pass
+
+                with VARIANT_JOBS_LOCK:
+                    vj.sprite_name = sprite_name
+                    vj.frame_count = frame_count
+                    vj.status      = "done"
+                    vj.finished_at = time.time()
+
+                log.info("[variant %s] sheet saved: %s (%d frames)", var_id, sprite_name, frame_count)
+                _persist_snapshot()
+
+            else:
+                # ── Single-frame static variant (corpse, damage) ──
+                log.info("[variant %s] submitting %s", var_id, vj.variant_type)
+                url = render_variant_frame(vj.prompt, source_url, api_key, var_id)
+
+                with VARIANT_JOBS_LOCK:
+                    vj.status = "processing"
+
+                resp = requests.get(url, timeout=120)
+                resp.raise_for_status()
+
+                sprite_name = f"{var_id}_{vj.variant_type}.png"
+                process_sprite(resp.content, os.path.join(SPRITES_DIR, sprite_name))
+
+                with VARIANT_JOBS_LOCK:
+                    vj.sprite_name = sprite_name
+                    vj.status      = "done"
+                    vj.finished_at = time.time()
+
+                log.info("[variant %s] saved %s", var_id, sprite_name)
+                _persist_snapshot()
 
         except Exception:
             log.exception("[variant %s] FAILED", var_id)
@@ -392,8 +436,7 @@ def variant_worker():
         finally:
             VARIANT_JOB_QUEUE.task_done()
 
-threading.Thread(target=render_worker, daemon=True).start()
-threading.Thread(target=anim_worker,   daemon=True).start()
+threading.Thread(target=render_worker,  daemon=True).start()
 threading.Thread(target=variant_worker, daemon=True).start()
 
 # ---------- API ----------
@@ -413,8 +456,8 @@ def get_config():
 @app.put("/config")
 def set_config(cfg: ConfigUpdate):
     updated = config.update(cfg.model_dump())
-    log.info("config updated: workflow=%s anim_workflow=%s",
-             updated["workflow"], updated["anim_workflow"])
+    log.info("config updated: workflow=%s variant_workflow=%s strength=%.2f",
+             updated["workflow"], updated["variant_workflow"], updated["variant_strength"])
     return updated
 
 # -- profiles --
@@ -503,9 +546,10 @@ def trigger_variant(sprite_job_id: str, variant_type: str, req: VariantRequest):
     if not sprite_job.source_url:
         raise HTTPException(400, "sprite has no source URL yet — still rendering?")
 
-    # Use caller-supplied prompt or regenerate from template
+    # Caller may supply a custom pose override; otherwise use the standard pose template.
+    # Never include the original character description — identity comes from init_image.
     prompt = req.prompt.strip() if req.prompt and req.prompt.strip() \
-             else build_variant_prompt(sprite_job.prompt, variant_type)
+             else build_variant_prompt(variant_type)
 
     var_id = uuid.uuid4().hex[:8]
     vj = VariantJob(
@@ -523,15 +567,6 @@ def trigger_variant(sprite_job_id: str, variant_type: str, req: VariantRequest):
     log.info("[%s] variant %s re-queued as %s", sprite_job_id, variant_type, var_id)
     return vj
 
-# -- animation jobs --
-
-@app.get("/anim-jobs/{anim_job_id}")
-def get_anim_job(anim_job_id: str):
-    with ANIM_JOBS_LOCK:
-        if anim_job_id not in ANIM_JOBS:
-            raise HTTPException(404, "no such animation job")
-        return ANIM_JOBS[anim_job_id]
-
 # -- static assets --
 
 @app.get("/sprites/{name}")
@@ -542,16 +577,6 @@ def get_sprite(name: str):
     if not os.path.exists(path):
         raise HTTPException(404, "sprite not found")
     return FileResponse(path, media_type="image/png")
-
-@app.get("/anims/{name}")
-def get_anim(name: str):
-    if "/" in name or "\\" in name or ".." in name:
-        raise HTTPException(400, "bad anim name")
-    path = os.path.join(ANIMS_DIR, name)
-    if not os.path.exists(path):
-        raise HTTPException(404, "anim not found")
-    media_type = "video/webm" if name.endswith(".webm") else "video/mp4"
-    return FileResponse(path, media_type=media_type)
 
 app.mount("/", StaticFiles(directory=GAME_DIR, html=True), name="game")
 

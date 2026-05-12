@@ -58,20 +58,23 @@ def render_create(
     on_event: Callable[[dict], None],
     init_image: Optional[str] = None,
     seed: Optional[int] = None,
+    strength: Optional[float] = None,
 ) -> None:
     """
     Submit a workflow render and stream progress events back.
     Blocks until the SSE stream closes. on_event fires for each parsed event.
 
     init_image: publicly-accessible URL used as the source image for img2img
-    or img2vid workflows (maps to the SDK's inputs={"init_image": url}).
+    workflows (e.g. edit-qwen-rapid for variant state generation).
 
-    The workflow slug is the primary iteration variable — change it in forge.py
-    (WORKFLOW / ANIM_WORKFLOW constants) to switch between Graydient offerings.
+    strength: denoise strength for img2img workflows (0.0–1.0). Only valid for
+    edit/remix/img2img workflows — do not pass for txt2img renders.
     """
     options_parts = [f"/run:{workflow}"]
     if seed is not None:
         options_parts.append(f"/seed:{seed}")
+    if strength is not None:
+        options_parts.append(f"/strength:{strength:.2f}")
 
     body = {
         "options": " ".join(options_parts),

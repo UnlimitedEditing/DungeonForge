@@ -36,6 +36,9 @@ const ROAM_PAUSE_MIN = 1.0;
 const ROAM_PAUSE_MAX = 3.0;
 const ROAM_BOUND     = ROOM_SIZE / 2 - 1.8;
 
+const WALK_SHEET_FPS = 8;    // animation frames per second for walk cycle sheets
+const SPRITE_WORLD_H = 2.2;  // world-space height used for all sprites
+
 const SPAWN_RING = [
   [ 0, -4], [ 3, -3], [ 4,  0], [ 3,  3],
   [ 0,  4], [-3,  3], [-4,  0], [-3, -3],
@@ -481,7 +484,47 @@ const bestiaryPanelEl  = document.getElementById('bestiary-panel');
 const bestiaryBody     = document.getElementById('bestiary-body');
 const bestiaryCloseBtn = document.getElementById('bestiary-close-btn');
 
-function openBestiary()  { bestiaryPanelEl.dataset.open = 'true';  renderBestiary(); }
+async function loadJobHistory() {
+  try {
+    const res = await fetch(`${FORGE_BASE}/jobs`);
+    if (!res.ok) return;
+    const jobs = await res.json();
+    const variantFetches = [];
+    for (const job of jobs) {
+      if (job.status !== 'done' || sprites.has(job.id)) continue;
+      sprites.set(job.id, {
+        jobId: job.id, status: 'done', prompt: job.prompt,
+        mesh: null, position: null, floorY: null, roam: null,
+        spriteSrc: job.sprite_name ? `${FORGE_BASE}/sprites/${job.sprite_name}` : null,
+        variants: {}, historical: true,
+      });
+      for (const [vtype, vid] of Object.entries(job.variant_job_ids ?? {})) {
+        variantFetches.push({ jobId: job.id, vtype, vid });
+      }
+    }
+    // Load variant metadata in parallel
+    await Promise.all(variantFetches.map(async ({ jobId, vtype, vid }) => {
+      try {
+        const vres = await fetch(`${FORGE_BASE}/variant-jobs/${vid}`);
+        if (!vres.ok) return;
+        const vj = await vres.json();
+        const entry = sprites.get(jobId);
+        if (!entry) return;
+        entry.variants[vtype] = { jobId: vid, status: vj.status, spriteName: vj.sprite_name, frameCount: vj.frame_count ?? 1 };
+        if (vj.status === 'done' && vj.sprite_name && (vtype === 'walk' || vtype === 'back') && (vj.frame_count ?? 1) > 1) {
+          loadWalkSheet(vj.sprite_name, vj.frame_count, vtype, entry);
+        }
+      } catch { /* silently skip broken variant */ }
+    }));
+    refreshJobList();
+  } catch (e) { console.warn('history load failed', e); }
+}
+
+async function openBestiary() {
+  bestiaryPanelEl.dataset.open = 'true';
+  await loadJobHistory();
+  renderBestiary();
+}
 function closeBestiary() { bestiaryPanelEl.dataset.open = 'false'; }
 
 bestiaryCloseBtn.addEventListener('click', closeBestiary);
@@ -580,6 +623,26 @@ function renderBestiary() {
   }
 }
 
+function loadWalkSheet(spriteName, frameCount, variantType, entry) {
+  const url = `${FORGE_BASE}/sprites/${spriteName}`;
+  textureLoader.load(url, (tex) => {
+    tex.magFilter = THREE.NearestFilter;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.repeat.set(1 / frameCount, 1);
+    tex.offset.set(0, 0);
+
+    const frameAspect = (tex.image.width / frameCount) / tex.image.height;
+    const mat = new THREE.SpriteMaterial({
+      map: tex, transparent: true, alphaTest: 0.15, depthWrite: true,
+    });
+    const sheet = { mat, tex, frameCount, frameAspect };
+
+    if (variantType === 'walk') entry.walkSheet = sheet;
+    if (variantType === 'back') entry.backSheet = sheet;
+  }, undefined, (err) => console.error('walk sheet load failed', err));
+}
+
 async function pollVariantJob(varJobId, variantType, entry) {
   while (true) {
     await new Promise(r => setTimeout(r, POLL_MS));
@@ -591,18 +654,15 @@ async function pollVariantJob(varJobId, variantType, entry) {
     } catch (e) { console.warn('variant poll error', e); continue; }
 
     if (!entry.variants) entry.variants = {};
-    entry.variants[variantType] = { jobId: varJobId, status: vj.status, spriteName: vj.sprite_name };
+    entry.variants[variantType] = { jobId: varJobId, status: vj.status, spriteName: vj.sprite_name, frameCount: vj.frame_count ?? 1 };
 
     refreshJobList();
     if (bestiaryPanelEl.dataset.open === 'true') renderBestiary();
 
-    if (vj.status === 'done') {
-      if (vj.sprite_name && variantType === 'back') {
-        // Pre-load the back texture so directional swap is instant
-        textureLoader.load(`${FORGE_BASE}/sprites/${vj.sprite_name}`, (tex) => {
-          tex.magFilter = THREE.NearestFilter; tex.colorSpace = THREE.SRGBColorSpace;
-          entry.backTex = tex;
-        });
+    if (vj.status === 'done' && vj.sprite_name) {
+      const frameCount = vj.frame_count ?? 1;
+      if ((variantType === 'walk' || variantType === 'back') && frameCount > 1) {
+        loadWalkSheet(vj.sprite_name, frameCount, variantType, entry);
       }
       return;
     }
@@ -766,36 +826,6 @@ function makeSprite(spriteName, position, onReady) {
   }, undefined, (err) => console.error('texture load failed', err));
 }
 
-function applyWalkAnim(entry, animName) {
-  const video = document.createElement('video');
-  video.src = `${FORGE_BASE}/anims/${animName}`;
-  video.loop = true; video.muted = true; video.playsInline = true; video.crossOrigin = 'anonymous';
-  video.play().catch(() => {});
-
-  const tex = new THREE.VideoTexture(video);
-  tex.magFilter = THREE.NearestFilter; tex.colorSpace = THREE.SRGBColorSpace;
-
-  // New material with a luminance-key shader to strip the white video background.
-  // SpriteMaterial doesn't expose alpha blending directly, so we patch the
-  // compiled fragment shader: pixels where R, G, and B are all near-white get
-  // their alpha smoothly ramped to 0 before the alphaTest discard runs.
-  const newMat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: true });
-  newMat.customProgramCacheKey = () => 'walk-luma-key';
-  newMat.onBeforeCompile = (shader) => {
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <alphatest_fragment>',
-      `float _w = min(min(diffuseColor.r, diffuseColor.g), diffuseColor.b);
-       diffuseColor.a *= 1.0 - smoothstep(0.78, 0.93, _w);
-       #include <alphatest_fragment>`
-    );
-  };
-
-  entry.mesh.material?.dispose();
-  entry.mesh.material = newMat;
-  entry.walkVideo = video;
-  entry.walkAnimReady = true;
-}
-
 async function spawnFromPrompt(promptText) {
   if (!promptText || !profileId) return;
   let job;
@@ -810,7 +840,7 @@ async function spawnFromPrompt(promptText) {
 
   const position    = nextSpawn();
   const placeholder = makePlaceholder(position);
-  sprites.set(job.id, { jobId: job.id, status: job.status, mesh: placeholder, position, prompt: promptText, floorY: 1.1, animJobId: null, walkAnimReady: false, walkVideo: null, roam: null });
+  sprites.set(job.id, { jobId: job.id, status: job.status, mesh: placeholder, position, prompt: promptText, floorY: 1.1, roam: null });
   refreshJobList();
   pollJob(job.id);
 }
@@ -833,10 +863,14 @@ async function pollJob(jobId) {
         roomScene.remove(entry.mesh);
         entry.mesh.material?.dispose(); entry.mesh.geometry?.dispose();
         roomScene.add(sprite);
-        entry.mesh = sprite; entry.floorY = floorY; entry.roam = initRoam();
-        entry.frontTex = tex; entry.spriteSrc = src;
+        entry.mesh    = sprite;
+        entry.floorY  = floorY;
+        entry.roam    = initRoam();
+        entry.frontTex    = tex;
+        entry.frontAspect = tex.image.width / tex.image.height;
+        entry.frontMat    = sprite.material;   // reference kept for idle swap-back
+        entry.spriteSrc   = src;
       });
-      if (job.anim_job_id) { entry.animJobId = job.anim_job_id; pollWalkAnim(job.anim_job_id, entry); }
       if (job.variant_job_ids && Object.keys(job.variant_job_ids).length) {
         if (!entry.variants) entry.variants = {};
         for (const [vtype, vid] of Object.entries(job.variant_job_ids)) {
@@ -852,22 +886,6 @@ async function pollJob(jobId) {
   }
 }
 
-async function pollWalkAnim(animJobId, entry) {
-  while (true) {
-    await new Promise(r => setTimeout(r, POLL_MS));
-    let animJob;
-    try {
-      const res = await fetch(`${FORGE_BASE}/anim-jobs/${animJobId}`);
-      if (!res.ok) throw new Error(res.status);
-      animJob = await res.json();
-    } catch (e) { console.warn('anim poll error', e); continue; }
-    if (animJob.status === 'done' && animJob.anim_name && entry.mesh) {
-      applyWalkAnim(entry, animJob.anim_name); refreshJobList(); return;
-    }
-    if (animJob.status === 'failed') { console.warn('walk anim failed', animJobId); return; }
-  }
-}
-
 // ─────────────────────────────────────────────
 // ROAMING
 // ─────────────────────────────────────────────
@@ -878,10 +896,14 @@ function initRoam() {
 
 function updateRoaming(dt) {
   const now = performance.now() / 1000;
+  const _cameraFwd = new THREE.Vector3();
+
   for (const e of sprites.values()) {
     if (e.status !== 'done' || !e.roam || !e.mesh) continue;
 
     let moving = false;
+    let dirX = 0, dirZ = 0;
+
     if (now >= e.roam.waitUntil) {
       const pos  = e.mesh.position;
       const dx   = e.roam.target.x - pos.x;
@@ -891,35 +913,51 @@ function updateRoaming(dt) {
         e.roam.waitUntil = now + ROAM_PAUSE_MIN + Math.random() * (ROAM_PAUSE_MAX - ROAM_PAUSE_MIN);
         e.roam.target    = randomRoamTarget();
       } else {
-        pos.x += (dx / dist) * e.roam.speed * dt;
-        pos.z += (dz / dist) * e.roam.speed * dt;
+        dirX = dx / dist; dirZ = dz / dist;
+        pos.x += dirX * e.roam.speed * dt;
+        pos.z += dirZ * e.roam.speed * dt;
         pos.y  = e.floorY;
         moving = true;
-
-        // Directional sprite swap: show back texture when NPC moves away from camera.
-        // Only applies when there's no walk animation (static texture on material).
-        if (!e.walkAnimReady && e.backTex && e.frontTex && e.mesh?.material) {
-          const cameraFwd = new THREE.Vector3();
-          roomCamera.getWorldDirection(cameraFwd);
-          const dot = (dx / dist) * cameraFwd.x + (dz / dist) * cameraFwd.z;
-          const tex = dot > 0.25 ? e.backTex : e.frontTex;
-          if (e.mesh.material.map !== tex) {
-            e.mesh.material.map = tex;
-            e.mesh.material.needsUpdate = true;
-          }
-        }
       }
     }
 
-    // When idle and no walk anim, restore front texture (in case back was showing).
-    if (!moving && !e.walkAnimReady && e.frontTex && e.mesh?.material && e.mesh.material.map !== e.frontTex) {
-      e.mesh.material.map = e.frontTex;
-      e.mesh.material.needsUpdate = true;
+    // Determine if moving away from camera (for back-sheet selection)
+    let movingAway = false;
+    if (moving && (e.walkSheet || e.backSheet)) {
+      roomCamera.getWorldDirection(_cameraFwd);
+      movingAway = (dirX * _cameraFwd.x + dirZ * _cameraFwd.z) > 0.25;
     }
 
-    if (e.walkVideo) {
-      if (moving && e.walkVideo.paused)  e.walkVideo.play().catch(() => {});
-      if (!moving && !e.walkVideo.paused) e.walkVideo.pause();
+    // Pick the active sprite sheet (walk or back), or fall back to static material
+    const sheet = moving
+      ? ((movingAway && e.backSheet) ? e.backSheet : (e.walkSheet ?? null))
+      : null;
+
+    if (sheet) {
+      // ── Animated sprite sheet ──
+      if (e.mesh.material !== sheet.mat) {
+        e.mesh.material = sheet.mat;
+        e.mesh.scale.x  = SPRITE_WORLD_H * sheet.frameAspect;
+      }
+      e.walkFrameTimer = (e.walkFrameTimer ?? 0) + dt;
+      const frameIdx = Math.floor(e.walkFrameTimer * WALK_SHEET_FPS) % sheet.frameCount;
+      sheet.tex.offset.x = frameIdx / sheet.frameCount;
+
+    } else if (e.frontMat) {
+      // ── Static material (idle, or no sheets yet) ──
+      e.walkFrameTimer = 0;
+      if (e.mesh.material !== e.frontMat) {
+        e.mesh.material = e.frontMat;
+        e.mesh.scale.x  = SPRITE_WORLD_H * (e.frontAspect ?? 1);
+      }
+      // While moving with no sheets, fall back to static backTex swap
+      const useTex = (moving && !e.walkSheet && !e.backSheet && e.backTex)
+        ? (() => { roomCamera.getWorldDirection(_cameraFwd); return (dirX * _cameraFwd.x + dirZ * _cameraFwd.z) > 0.25 ? e.backTex : e.frontTex; })()
+        : e.frontTex;
+      if (useTex && e.frontMat.map !== useTex) {
+        e.frontMat.map = useTex;
+        e.frontMat.needsUpdate = true;
+      }
     }
   }
 }
@@ -940,6 +978,7 @@ function updateHudPlayer() { hudPlayer.textContent = profileUsername || '—'; }
 function refreshHud() {
   let ready = 0, inflight = 0;
   for (const e of sprites.values()) {
+    if (e.historical) continue;
     if (e.status === 'done') ready++; else if (e.status !== 'failed') inflight++;
   }
   hudSprites.textContent = ready;
@@ -950,12 +989,10 @@ function refreshHud() {
 }
 
 function refreshJobList() {
-  if (sprites.size === 0) { jobsListEl.innerHTML = '<div class="muted">no jobs.</div>'; return; }
+  const active = [...sprites.values()].filter(e => !e.historical);
+  if (active.length === 0) { jobsListEl.innerHTML = '<div class="muted">no jobs.</div>'; return; }
   const rows = [];
-  for (const e of sprites.values()) {
-    const animTag = e.walkAnimReady
-      ? '<span class="job-anim" data-s="done">walk</span>'
-      : e.animJobId ? '<span class="job-anim" data-s="pending">walk…</span>' : '';
+  for (const e of active) {
     let variantTags = '';
     if (e.variants) {
       for (const [vt, vj] of Object.entries(e.variants)) {
@@ -967,7 +1004,7 @@ function refreshJobList() {
     rows.push(`<div class="job-row">
       <span class="job-id">${e.jobId}</span>
       <span class="job-prompt">${escapeHtml(e.prompt)}</span>
-      ${animTag}${variantTags}
+      ${variantTags}
       <span class="job-status" data-s="${e.status}">${e.status}</span>
     </div>`);
   }
@@ -982,15 +1019,15 @@ function escapeHtml(s) {
 // CONFIG PANEL (terminal tab, also from forge)
 // ─────────────────────────────────────────────
 
-const tabBtns       = document.querySelectorAll('.tab-btn');
-const tabPanels     = document.querySelectorAll('.tab-panel');
-const cfgWorkflow   = document.getElementById('cfg-workflow');
-const cfgAnimWf     = document.getElementById('cfg-anim-workflow');
-const cfgSpriteTmpl = document.getElementById('cfg-sprite-template');
-const cfgWalkTmpl   = document.getElementById('cfg-walk-template');
-const cfgLore       = document.getElementById('cfg-lore');
-const cfgSaveBtn    = document.getElementById('cfg-save-btn');
-const cfgStatus     = document.getElementById('config-status');
+const tabBtns           = document.querySelectorAll('.tab-btn');
+const tabPanels         = document.querySelectorAll('.tab-panel');
+const cfgWorkflow       = document.getElementById('cfg-workflow');
+const cfgVariantWf      = document.getElementById('cfg-variant-workflow');
+const cfgVariantStrength = document.getElementById('cfg-variant-strength');
+const cfgSpriteTmpl     = document.getElementById('cfg-sprite-template');
+const cfgLore           = document.getElementById('cfg-lore');
+const cfgSaveBtn        = document.getElementById('cfg-save-btn');
+const cfgStatus         = document.getElementById('config-status');
 
 tabBtns.forEach(btn => btn.addEventListener('click', () => {
   const t = btn.dataset.tab;
@@ -1004,11 +1041,11 @@ async function loadConfig() {
     const res = await fetch(`${FORGE_BASE}/config`);
     if (!res.ok) return;
     const cfg = await res.json();
-    cfgWorkflow.value   = cfg.workflow ?? '';
-    cfgAnimWf.value     = cfg.anim_workflow ?? '';
-    cfgSpriteTmpl.value = cfg.sprite_prompt_template ?? '';
-    cfgWalkTmpl.value   = cfg.walk_prompt_template ?? '';
-    cfgLore.value       = cfg.lore ?? '';
+    cfgWorkflow.value        = cfg.workflow ?? '';
+    cfgVariantWf.value       = cfg.variant_workflow ?? '';
+    cfgVariantStrength.value = cfg.variant_strength ?? 0.65;
+    cfgSpriteTmpl.value      = cfg.sprite_prompt_template ?? '';
+    cfgLore.value            = cfg.lore ?? '';
   } catch (e) { console.warn('config load failed', e); }
 }
 
@@ -1019,8 +1056,10 @@ async function saveConfig() {
     const res = await fetch(`${FORGE_BASE}/config`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        workflow: cfgWorkflow.value.trim(), anim_workflow: cfgAnimWf.value.trim(),
-        sprite_prompt_template: cfgSpriteTmpl.value, walk_prompt_template: cfgWalkTmpl.value,
+        workflow: cfgWorkflow.value.trim(),
+        variant_workflow: cfgVariantWf.value.trim(),
+        variant_strength: parseFloat(cfgVariantStrength.value) || 0.65,
+        sprite_prompt_template: cfgSpriteTmpl.value,
         lore: cfgLore.value,
       }),
     });

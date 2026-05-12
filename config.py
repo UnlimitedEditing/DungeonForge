@@ -21,10 +21,21 @@ _lock = threading.Lock()
 
 DEFAULTS: dict[str, Any] = {
     # --- workflows (Graydient slug strings) ---
+    # sprite_workflow: txt2img — generates the base character sprite.
+    # variant_workflow: img2img/edit — modifies the original sprite to produce
+    #   alternative poses/states while preserving character identity.
     "workflow": "qwen",
-    "anim_workflow": "animate-wan22",
+    "variant_workflow": "edit-qwen-rapid",
 
-    # --- prompt scaffolding ---
+    # How strongly the edit workflow departs from the source sprite.
+    # Lower = closer to original; higher = more freedom (but less consistent).
+    "variant_strength": 0.65,
+
+    # Number of frames in walk cycle sprite sheets (front + back).
+    # Frames are rendered sequentially and stitched into a single horizontal sheet.
+    "walk_frame_count": 4,
+
+    # --- sprite prompt scaffolding ---
     # {user_prompt} is replaced with whatever the player typed.
     "sprite_prompt_template": (
         "{user_prompt}, "
@@ -34,27 +45,26 @@ DEFAULTS: dict[str, Any] = {
         "retro fantasy game character illustration, "
         "clear silhouette, high contrast against the background"
     ),
-    "walk_prompt_template": (
-        "{user_prompt}, "
-        "walking forward, smooth natural gait cycle, "
-        "looping walk animation, seamless motion"
-    ),
 
-    # --- variant state templates (img2img, init_image = original render) ---
+    # --- variant state templates ---
+    # All variants use the original sprite as init_image via the edit workflow.
+    # Prompts describe ONLY the posture/pose change — no character description.
+    # The init_image carries all identity; re-describing features causes drift.
+    "walk_prompt_template": (
+        "walking pose, mid-stride, one foot forward, weight shifted, "
+        "full body visible, centered, clean solid white background"
+    ),
     "corpse_prompt_template": (
-        "{user_prompt}, "
-        "lying dead on the ground, slain, lifeless corpse pose, "
-        "single character, centered composition, clean solid white background"
+        "lying dead on the ground, lifeless, collapsed posture, "
+        "full body visible, centered, clean solid white background"
     ),
     "damage_prompt_template": (
-        "{user_prompt}, "
-        "recoiling from a hit, taking damage, flinching in pain, "
-        "single character, centered composition, clean solid white background"
+        "recoiling from a hit, flinching, body twisting away from impact, "
+        "full body visible, centered, clean solid white background"
     ),
     "back_prompt_template": (
-        "{user_prompt}, "
-        "back view, seen from behind, rear-facing pose, "
-        "single character, centered composition, clean solid white background"
+        "turned around, facing away, rear view, back of body visible, "
+        "full body visible, centered, clean solid white background"
     ),
 
     # --- lore source ---

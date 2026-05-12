@@ -221,12 +221,16 @@
           <div class="config-section">
             <div class="config-section-label">// workflows</div>
             <div class="config-field">
-              <label class="config-label">Sprite workflow</label>
+              <label class="config-label">Sprite workflow (txt2img)</label>
               <input id="cfg-workflow" type="text" class="config-input" spellcheck="false" />
             </div>
             <div class="config-field">
-              <label class="config-label">Anim workflow</label>
-              <input id="cfg-anim-workflow" type="text" class="config-input" spellcheck="false" />
+              <label class="config-label">Variant workflow (img2img edit)</label>
+              <input id="cfg-variant-workflow" type="text" class="config-input" spellcheck="false" />
+            </div>
+            <div class="config-field">
+              <label class="config-label">Variant strength (0.0 – 1.0)</label>
+              <input id="cfg-variant-strength" type="number" min="0" max="1" step="0.05" class="config-input" spellcheck="false" />
             </div>
           </div>
 
@@ -235,10 +239,6 @@
             <div class="config-field">
               <label class="config-label">Sprite prompt template</label>
               <textarea id="cfg-sprite-template" class="config-textarea" rows="3" spellcheck="false"></textarea>
-            </div>
-            <div class="config-field">
-              <label class="config-label">Walk anim prompt template</label>
-              <textarea id="cfg-walk-template" class="config-textarea" rows="2" spellcheck="false"></textarea>
             </div>
           </div>
 
