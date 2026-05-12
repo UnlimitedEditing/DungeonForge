@@ -108,7 +108,7 @@
         <div class="forge-actions">
           <button class="forge-action-btn" id="forge-lore-btn">LORE BOOK</button>
           <button class="forge-action-btn" id="forge-config-btn">CONFIG</button>
-          <button class="forge-action-btn" disabled title="Coming in v0.4">BESTIARY</button>
+          <button class="forge-action-btn" id="forge-bestiary-btn">BESTIARY</button>
         </div>
       </div>
     </div>
@@ -129,6 +129,19 @@
       <div class="lore-footer">
         <div id="lore-status" class="lore-status" data-state="idle"></div>
         <button id="lore-save-btn">INSCRIBE</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bestiary panel: accessible from the Forge hub. -->
+  <div id="bestiary-panel" data-open="false">
+    <div class="bestiary-frame">
+      <div class="bestiary-header">
+        <span class="bestiary-title">// BESTIARY</span>
+        <button class="bestiary-close-btn" id="bestiary-close-btn">✕ CLOSE</button>
+      </div>
+      <div class="bestiary-body" id="bestiary-body">
+        <p class="muted bestiary-empty">No creatures forged yet. Spawn something in the room.</p>
       </div>
     </div>
   </div>

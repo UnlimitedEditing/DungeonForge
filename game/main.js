@@ -472,6 +472,145 @@ loreCloseBtn.addEventListener('click', closeLorePanel);
 loreSaveBtn.addEventListener('click', saveLore);
 
 // ─────────────────────────────────────────────
+// BESTIARY
+// ─────────────────────────────────────────────
+
+const VARIANT_TYPES = ['corpse', 'damage', 'back'];
+
+const bestiaryPanelEl  = document.getElementById('bestiary-panel');
+const bestiaryBody     = document.getElementById('bestiary-body');
+const bestiaryCloseBtn = document.getElementById('bestiary-close-btn');
+
+function openBestiary()  { bestiaryPanelEl.dataset.open = 'true';  renderBestiary(); }
+function closeBestiary() { bestiaryPanelEl.dataset.open = 'false'; }
+
+bestiaryCloseBtn.addEventListener('click', closeBestiary);
+document.getElementById('forge-bestiary-btn').addEventListener('click', openBestiary);
+
+function renderBestiary() {
+  const entries = [...sprites.values()].filter(e => e.status === 'done');
+  if (!entries.length) {
+    bestiaryBody.innerHTML = '<p class="muted bestiary-empty">No creatures forged yet. Spawn something in the room.</p>';
+    return;
+  }
+  bestiaryBody.innerHTML = '';
+  for (const e of entries) {
+    const card = document.createElement('div');
+    card.className = 'beast-card';
+    card.dataset.jobId = e.jobId;
+
+    // Thumbnail
+    const thumbWrap = document.createElement('div');
+    if (e.spriteSrc) {
+      const img = document.createElement('img');
+      img.className = 'beast-thumb'; img.src = e.spriteSrc; img.alt = e.prompt;
+      thumbWrap.appendChild(img);
+    } else {
+      const ph = document.createElement('div');
+      ph.className = 'beast-thumb-placeholder'; ph.textContent = '?';
+      thumbWrap.appendChild(ph);
+    }
+    card.appendChild(thumbWrap);
+
+    // Info column
+    const info = document.createElement('div');
+    info.className = 'beast-info';
+
+    const promptEl = document.createElement('div');
+    promptEl.className = 'beast-prompt'; promptEl.textContent = e.prompt;
+    info.appendChild(promptEl);
+
+    // Variant badges — click to view sprite in new tab
+    const badges = document.createElement('div');
+    badges.className = 'beast-variants';
+    for (const vt of VARIANT_TYPES) {
+      const vj = e.variants?.[vt];
+      const badge = document.createElement('button');
+      badge.className = 'beast-variant-badge';
+      badge.textContent = vt.toUpperCase();
+      badge.dataset.state = vj ? vj.status : 'none';
+      if (vj?.status === 'done' && vj.spriteName) {
+        badge.title = 'Click to preview';
+        badge.addEventListener('click', () => window.open(`${FORGE_BASE}/sprites/${vj.spriteName}`, '_blank'));
+      } else {
+        badge.title = vj ? vj.status : 'not generated';
+      }
+      badges.appendChild(badge);
+    }
+    info.appendChild(badges);
+
+    // Regen row
+    const regenRow = document.createElement('div');
+    regenRow.className = 'beast-regen-row';
+    const regenInput = document.createElement('input');
+    regenInput.className = 'beast-regen-input'; regenInput.type = 'text';
+    regenInput.placeholder = 'regen prompt override (leave blank to use template)…';
+    const regenSelect = document.createElement('select');
+    regenSelect.style.cssText = 'background:var(--bg-deep);color:var(--amber);border:1px solid var(--rust);padding:3px 6px;font-family:VT323,monospace;font-size:18px;outline:none;';
+    VARIANT_TYPES.forEach(vt => {
+      const opt = document.createElement('option'); opt.value = vt; opt.textContent = vt;
+      regenSelect.appendChild(opt);
+    });
+    const regenBtn = document.createElement('button');
+    regenBtn.className = 'beast-regen-btn'; regenBtn.textContent = 'REGEN';
+    regenBtn.addEventListener('click', async () => {
+      regenBtn.disabled = true;
+      const vt = regenSelect.value;
+      const customPrompt = regenInput.value.trim() || null;
+      try {
+        const res = await fetch(`${FORGE_BASE}/jobs/${e.jobId}/variants/${vt}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profile_id: profileId, prompt: customPrompt }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const vj = await res.json();
+        if (!e.variants) e.variants = {};
+        e.variants[vt] = { jobId: vj.id, status: vj.status, spriteName: null };
+        pollVariantJob(vj.id, vt, e);
+        refreshJobList();
+        renderBestiary();
+      } catch (err) { console.error('regen failed', err); }
+      finally { regenBtn.disabled = false; }
+    });
+    regenRow.append(regenInput, regenSelect, regenBtn);
+    info.appendChild(regenRow);
+
+    card.appendChild(info);
+    bestiaryBody.appendChild(card);
+  }
+}
+
+async function pollVariantJob(varJobId, variantType, entry) {
+  while (true) {
+    await new Promise(r => setTimeout(r, POLL_MS));
+    let vj;
+    try {
+      const res = await fetch(`${FORGE_BASE}/variant-jobs/${varJobId}`);
+      if (!res.ok) throw new Error(res.status);
+      vj = await res.json();
+    } catch (e) { console.warn('variant poll error', e); continue; }
+
+    if (!entry.variants) entry.variants = {};
+    entry.variants[variantType] = { jobId: varJobId, status: vj.status, spriteName: vj.sprite_name };
+
+    refreshJobList();
+    if (bestiaryPanelEl.dataset.open === 'true') renderBestiary();
+
+    if (vj.status === 'done') {
+      if (vj.sprite_name && variantType === 'back') {
+        // Pre-load the back texture so directional swap is instant
+        textureLoader.load(`${FORGE_BASE}/sprites/${vj.sprite_name}`, (tex) => {
+          tex.magFilter = THREE.NearestFilter; tex.colorSpace = THREE.SRGBColorSpace;
+          entry.backTex = tex;
+        });
+      }
+      return;
+    }
+    if (vj.status === 'failed') return;
+  }
+}
+
+// ─────────────────────────────────────────────
 // ROOM SCENE
 // ─────────────────────────────────────────────
 
@@ -623,7 +762,7 @@ function makeSprite(spriteName, position, onReady) {
     sprite.scale.set(h * (tex.image.width / tex.image.height), h, 1);
     sprite.position.copy(position);
     sprite.position.y = h / 2;
-    onReady(sprite, h / 2);
+    onReady(sprite, h / 2, tex, `${FORGE_BASE}/sprites/${spriteName}`);
   }, undefined, (err) => console.error('texture load failed', err));
 }
 
@@ -632,11 +771,29 @@ function applyWalkAnim(entry, animName) {
   video.src = `${FORGE_BASE}/anims/${animName}`;
   video.loop = true; video.muted = true; video.playsInline = true; video.crossOrigin = 'anonymous';
   video.play().catch(() => {});
+
   const tex = new THREE.VideoTexture(video);
   tex.magFilter = THREE.NearestFilter; tex.colorSpace = THREE.SRGBColorSpace;
-  const mat = entry.mesh.material;
-  mat.map?.dispose(); mat.map = tex; mat.needsUpdate = true;
-  entry.walkVideo = video; entry.walkAnimReady = true;
+
+  // New material with a luminance-key shader to strip the white video background.
+  // SpriteMaterial doesn't expose alpha blending directly, so we patch the
+  // compiled fragment shader: pixels where R, G, and B are all near-white get
+  // their alpha smoothly ramped to 0 before the alphaTest discard runs.
+  const newMat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: true });
+  newMat.customProgramCacheKey = () => 'walk-luma-key';
+  newMat.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <alphatest_fragment>',
+      `float _w = min(min(diffuseColor.r, diffuseColor.g), diffuseColor.b);
+       diffuseColor.a *= 1.0 - smoothstep(0.78, 0.93, _w);
+       #include <alphatest_fragment>`
+    );
+  };
+
+  entry.mesh.material?.dispose();
+  entry.mesh.material = newMat;
+  entry.walkVideo = video;
+  entry.walkAnimReady = true;
 }
 
 async function spawnFromPrompt(promptText) {
@@ -672,13 +829,21 @@ async function pollJob(jobId) {
     entry.status = job.status;
     refreshJobList();
     if (job.status === 'done') {
-      makeSprite(job.sprite_name, entry.position, (sprite, floorY) => {
+      makeSprite(job.sprite_name, entry.position, (sprite, floorY, tex, src) => {
         roomScene.remove(entry.mesh);
         entry.mesh.material?.dispose(); entry.mesh.geometry?.dispose();
         roomScene.add(sprite);
         entry.mesh = sprite; entry.floorY = floorY; entry.roam = initRoam();
+        entry.frontTex = tex; entry.spriteSrc = src;
       });
       if (job.anim_job_id) { entry.animJobId = job.anim_job_id; pollWalkAnim(job.anim_job_id, entry); }
+      if (job.variant_job_ids && Object.keys(job.variant_job_ids).length) {
+        if (!entry.variants) entry.variants = {};
+        for (const [vtype, vid] of Object.entries(job.variant_job_ids)) {
+          entry.variants[vtype] = { jobId: vid, status: 'queued', spriteName: null };
+          pollVariantJob(vid, vtype, entry);
+        }
+      }
       return;
     }
     if (job.status === 'failed') {
@@ -715,18 +880,46 @@ function updateRoaming(dt) {
   const now = performance.now() / 1000;
   for (const e of sprites.values()) {
     if (e.status !== 'done' || !e.roam || !e.mesh) continue;
-    if (now < e.roam.waitUntil) continue;
-    const pos  = e.mesh.position;
-    const dx   = e.roam.target.x - pos.x;
-    const dz   = e.roam.target.z - pos.z;
-    const dist = Math.sqrt(dx*dx + dz*dz);
-    if (dist < ROAM_ARRIVE_D) {
-      e.roam.waitUntil = now + ROAM_PAUSE_MIN + Math.random() * (ROAM_PAUSE_MAX - ROAM_PAUSE_MIN);
-      e.roam.target    = randomRoamTarget();
-    } else {
-      pos.x += (dx / dist) * e.roam.speed * dt;
-      pos.z += (dz / dist) * e.roam.speed * dt;
-      pos.y  = e.floorY;
+
+    let moving = false;
+    if (now >= e.roam.waitUntil) {
+      const pos  = e.mesh.position;
+      const dx   = e.roam.target.x - pos.x;
+      const dz   = e.roam.target.z - pos.z;
+      const dist = Math.sqrt(dx*dx + dz*dz);
+      if (dist < ROAM_ARRIVE_D) {
+        e.roam.waitUntil = now + ROAM_PAUSE_MIN + Math.random() * (ROAM_PAUSE_MAX - ROAM_PAUSE_MIN);
+        e.roam.target    = randomRoamTarget();
+      } else {
+        pos.x += (dx / dist) * e.roam.speed * dt;
+        pos.z += (dz / dist) * e.roam.speed * dt;
+        pos.y  = e.floorY;
+        moving = true;
+
+        // Directional sprite swap: show back texture when NPC moves away from camera.
+        // Only applies when there's no walk animation (static texture on material).
+        if (!e.walkAnimReady && e.backTex && e.frontTex && e.mesh?.material) {
+          const cameraFwd = new THREE.Vector3();
+          roomCamera.getWorldDirection(cameraFwd);
+          const dot = (dx / dist) * cameraFwd.x + (dz / dist) * cameraFwd.z;
+          const tex = dot > 0.25 ? e.backTex : e.frontTex;
+          if (e.mesh.material.map !== tex) {
+            e.mesh.material.map = tex;
+            e.mesh.material.needsUpdate = true;
+          }
+        }
+      }
+    }
+
+    // When idle and no walk anim, restore front texture (in case back was showing).
+    if (!moving && !e.walkAnimReady && e.frontTex && e.mesh?.material && e.mesh.material.map !== e.frontTex) {
+      e.mesh.material.map = e.frontTex;
+      e.mesh.material.needsUpdate = true;
+    }
+
+    if (e.walkVideo) {
+      if (moving && e.walkVideo.paused)  e.walkVideo.play().catch(() => {});
+      if (!moving && !e.walkVideo.paused) e.walkVideo.pause();
     }
   }
 }
@@ -763,10 +956,18 @@ function refreshJobList() {
     const animTag = e.walkAnimReady
       ? '<span class="job-anim" data-s="done">walk</span>'
       : e.animJobId ? '<span class="job-anim" data-s="pending">walk…</span>' : '';
+    let variantTags = '';
+    if (e.variants) {
+      for (const [vt, vj] of Object.entries(e.variants)) {
+        const s = vj.status;
+        const label = s === 'done' ? vt : s === 'failed' ? `${vt}!` : `${vt}…`;
+        variantTags += `<span class="job-anim" data-s="${s === 'done' ? 'done' : s === 'failed' ? 'failed' : 'pending'}">${label}</span>`;
+      }
+    }
     rows.push(`<div class="job-row">
       <span class="job-id">${e.jobId}</span>
       <span class="job-prompt">${escapeHtml(e.prompt)}</span>
-      ${animTag}
+      ${animTag}${variantTags}
       <span class="job-status" data-s="${e.status}">${e.status}</span>
     </div>`);
   }

@@ -58,11 +58,17 @@ log = logging.getLogger("forge")
 # Templates are read from config at job-creation time so player edits
 # in the config panel take effect immediately without a server restart.
 
+VARIANT_TYPES = ("corpse", "damage", "back")
+
 def build_sprite_prompt(user_prompt: str) -> str:
     return config.get("sprite_prompt_template").format(user_prompt=user_prompt.strip())
 
 def build_walk_prompt(user_prompt: str) -> str:
     return config.get("walk_prompt_template").format(user_prompt=user_prompt.strip())
+
+def build_variant_prompt(user_prompt: str, variant_type: str) -> str:
+    tmpl = config.get(f"{variant_type}_prompt_template")
+    return tmpl.format(user_prompt=user_prompt.strip())
 
 # ---------- models ----------
 
@@ -86,6 +92,10 @@ class JobRequest(BaseModel):
     prompt: str
     profile_id: str
 
+class VariantRequest(BaseModel):
+    profile_id: str
+    prompt: Optional[str] = None   # if provided, overrides the template for this regen
+
 class Job(BaseModel):
     id: str
     profile_id: str
@@ -94,7 +104,8 @@ class Job(BaseModel):
     status: str           # queued | rendering | processing | done | failed
     sprite_name: Optional[str] = None
     source_url: Optional[str] = None   # pre-rembg Graydient URL; init_image for animation
-    anim_job_id: Optional[str] = None  # set once the walk anim job is queued
+    anim_job_id: Optional[str] = None
+    variant_job_ids: dict = {}         # variant_type -> job_id
     error: Optional[str] = None
     created_at: float
     finished_at: Optional[float] = None
@@ -102,21 +113,35 @@ class Job(BaseModel):
 class AnimJob(BaseModel):
     id: str
     sprite_job_id: str
-    prompt: str            # user's original description, used in walk prompt
+    prompt: str
     status: str            # queued | rendering | processing | done | failed
     anim_name: Optional[str] = None
     error: Optional[str] = None
     created_at: float
     finished_at: Optional[float] = None
 
-JOBS:      dict[str, Job]     = {}
-ANIM_JOBS: dict[str, AnimJob] = {}
+class VariantJob(BaseModel):
+    id: str
+    sprite_job_id: str
+    variant_type: str      # corpse | damage | back
+    prompt: str
+    status: str            # queued | rendering | processing | done | failed
+    sprite_name: Optional[str] = None
+    error: Optional[str] = None
+    created_at: float
+    finished_at: Optional[float] = None
+
+JOBS:         dict[str, Job]        = {}
+ANIM_JOBS:    dict[str, AnimJob]    = {}
+VARIANT_JOBS: dict[str, VariantJob] = {}
 
 JOB_QUEUE:      "queue.Queue[str]" = queue.Queue()
 ANIM_JOB_QUEUE: "queue.Queue[str]" = queue.Queue()
+VARIANT_JOB_QUEUE: "queue.Queue[str]" = queue.Queue()
 
-JOBS_LOCK      = threading.Lock()
-ANIM_JOBS_LOCK = threading.Lock()
+JOBS_LOCK         = threading.Lock()
+ANIM_JOBS_LOCK    = threading.Lock()
+VARIANT_JOBS_LOCK = threading.Lock()
 
 # ---------- sprite worker ----------
 
@@ -193,13 +218,28 @@ def render_worker():
                 ANIM_JOBS[anim_id] = anim_job
             ANIM_JOB_QUEUE.put(anim_id)
 
-            with JOBS_LOCK:
-                job.sprite_name = sprite_name
-                job.anim_job_id = anim_id
-                job.status = "done"
-                job.finished_at = time.time()
+            # Auto-queue variant states (corpse, damage, back) via img2img.
+            variant_ids: dict = {}
+            for vtype in VARIANT_TYPES:
+                vid = uuid.uuid4().hex[:8]
+                vprompt = build_variant_prompt(job.prompt, vtype)
+                vj = VariantJob(
+                    id=vid, sprite_job_id=job.id, variant_type=vtype,
+                    prompt=vprompt, status="queued", created_at=time.time(),
+                )
+                with VARIANT_JOBS_LOCK:
+                    VARIANT_JOBS[vid] = vj
+                VARIANT_JOB_QUEUE.put(vid)
+                variant_ids[vtype] = vid
 
-            log.info("[%s] sprite saved, walk anim queued as %s", job.id, anim_id)
+            with JOBS_LOCK:
+                job.sprite_name   = sprite_name
+                job.anim_job_id   = anim_id
+                job.variant_job_ids = variant_ids
+                job.status        = "done"
+                job.finished_at   = time.time()
+
+            log.info("[%s] sprite saved, walk anim %s, variants %s", job.id, anim_id, variant_ids)
 
         except Exception:
             log.exception("[%s] sprite FAILED", job_id)
@@ -289,8 +329,72 @@ def anim_worker():
         finally:
             ANIM_JOB_QUEUE.task_done()
 
+def variant_worker():
+    log.info("variant worker started")
+    while True:
+        var_id = VARIANT_JOB_QUEUE.get()
+        try:
+            with VARIANT_JOBS_LOCK:
+                vj = VARIANT_JOBS[var_id]
+                vj.status = "rendering"
+
+            with JOBS_LOCK:
+                sprite_job = JOBS[vj.sprite_job_id]
+
+            api_key    = profiles.get_api_key(sprite_job.profile_id)
+            source_url = sprite_job.source_url
+            if not api_key or not source_url:
+                raise RuntimeError("missing api key or source url for variant")
+
+            collected = {"url": None}
+            def on_event(event, _vid=var_id):
+                if "rendering_done" in event:
+                    data = event["rendering_done"]
+                    info = graydient_client.render_info(data["render_hash"], api_key)
+                    collected["url"] = graydient_client.extract_image_url(info)
+                    log.info("[variant %s] done url=%s", _vid, collected["url"])
+
+            workflow = config.get("workflow")
+            log.info("[variant %s] submitting %s (workflow=%s)", var_id, vj.variant_type, workflow)
+            graydient_client.render_create(
+                prompt=vj.prompt,
+                workflow=workflow,
+                api_key=api_key,
+                on_event=on_event,
+                init_image=source_url,
+            )
+
+            if not collected["url"]:
+                raise RuntimeError("variant stream closed with no URL")
+
+            with VARIANT_JOBS_LOCK:
+                vj.status = "processing"
+
+            resp = requests.get(collected["url"], timeout=120)
+            resp.raise_for_status()
+
+            sprite_name = f"{var_id}_{vj.variant_type}.png"
+            process_sprite(resp.content, os.path.join(SPRITES_DIR, sprite_name))
+
+            with VARIANT_JOBS_LOCK:
+                vj.sprite_name  = sprite_name
+                vj.status       = "done"
+                vj.finished_at  = time.time()
+
+            log.info("[variant %s] saved %s", var_id, sprite_name)
+
+        except Exception:
+            log.exception("[variant %s] FAILED", var_id)
+            with VARIANT_JOBS_LOCK:
+                if var_id in VARIANT_JOBS:
+                    VARIANT_JOBS[var_id].status = "failed"
+                    VARIANT_JOBS[var_id].finished_at = time.time()
+        finally:
+            VARIANT_JOB_QUEUE.task_done()
+
 threading.Thread(target=render_worker, daemon=True).start()
 threading.Thread(target=anim_worker,   daemon=True).start()
+threading.Thread(target=variant_worker, daemon=True).start()
 
 # ---------- API ----------
 
@@ -376,6 +480,48 @@ def get_job(job_id: str):
 def list_jobs():
     with JOBS_LOCK:
         return list(JOBS.values())
+
+# -- variant jobs --
+
+@app.get("/variant-jobs/{var_job_id}")
+def get_variant_job(var_job_id: str):
+    with VARIANT_JOBS_LOCK:
+        if var_job_id not in VARIANT_JOBS:
+            raise HTTPException(404, "no such variant job")
+        return VARIANT_JOBS[var_job_id]
+
+@app.post("/jobs/{sprite_job_id}/variants/{variant_type}")
+def trigger_variant(sprite_job_id: str, variant_type: str, req: VariantRequest):
+    if variant_type not in VARIANT_TYPES:
+        raise HTTPException(400, f"unknown variant type; must be one of {VARIANT_TYPES}")
+    if not profiles.get_api_key(req.profile_id):
+        raise HTTPException(401, "session expired — please log in again")
+    with JOBS_LOCK:
+        if sprite_job_id not in JOBS:
+            raise HTTPException(404, "sprite job not found")
+        sprite_job = JOBS[sprite_job_id]
+    if not sprite_job.source_url:
+        raise HTTPException(400, "sprite has no source URL yet — still rendering?")
+
+    # Use caller-supplied prompt or regenerate from template
+    prompt = req.prompt.strip() if req.prompt and req.prompt.strip() \
+             else build_variant_prompt(sprite_job.prompt, variant_type)
+
+    var_id = uuid.uuid4().hex[:8]
+    vj = VariantJob(
+        id=var_id, sprite_job_id=sprite_job_id, variant_type=variant_type,
+        prompt=prompt, status="queued", created_at=time.time(),
+    )
+    with VARIANT_JOBS_LOCK:
+        VARIANT_JOBS[var_id] = vj
+    VARIANT_JOB_QUEUE.put(var_id)
+
+    # Update the parent job's variant_job_ids so clients see the new ID
+    with JOBS_LOCK:
+        sprite_job.variant_job_ids[variant_type] = var_id
+
+    log.info("[%s] variant %s re-queued as %s", sprite_job_id, variant_type, var_id)
+    return vj
 
 # -- animation jobs --
 

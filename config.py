@@ -40,6 +40,23 @@ DEFAULTS: dict[str, Any] = {
         "looping walk animation, seamless motion"
     ),
 
+    # --- variant state templates (img2img, init_image = original render) ---
+    "corpse_prompt_template": (
+        "{user_prompt}, "
+        "lying dead on the ground, slain, lifeless corpse pose, "
+        "single character, centered composition, clean solid white background"
+    ),
+    "damage_prompt_template": (
+        "{user_prompt}, "
+        "recoiling from a hit, taking damage, flinching in pain, "
+        "single character, centered composition, clean solid white background"
+    ),
+    "back_prompt_template": (
+        "{user_prompt}, "
+        "back view, seen from behind, rear-facing pose, "
+        "single character, centered composition, clean solid white background"
+    ),
+
     # --- lore source ---
     # Free-text world description. Currently stored only.
     # Next layer: feed into an LLM-composer that derives prompt modifiers
