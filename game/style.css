@@ -332,6 +332,208 @@ button:hover  { background: var(--amber-hot); }
 button:active { transform: translateY(1px); }
 button:disabled { opacity: 0.4; cursor: wait; }
 
+/* ---------- Forge hub ---------- */
+#forge-hub {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 300ms;
+}
+#forge-hub[data-active="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.forge-menu {
+  width: min(480px, 88vw);
+  background: linear-gradient(170deg, #0d0800 0%, #050200 100%);
+  border: 2px solid var(--rust);
+  box-shadow:
+    inset 0 0 60px rgba(255, 80, 10, 0.05),
+    0 0 0 6px rgba(0,0,0,0.7),
+    0 0 80px rgba(200, 80, 10, 0.12);
+}
+
+.forge-menu-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: linear-gradient(90deg, rgba(74,24,8,0.8) 0%, transparent 100%);
+  border-bottom: 1px solid var(--rust);
+}
+.forge-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--amber-hot);
+  text-shadow: 0 0 10px rgba(255,150,40,0.6);
+}
+.forge-player-name {
+  font-size: 17px;
+  color: var(--amber-dim);
+}
+
+.forge-menu-body {
+  padding: 24px 22px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.forge-enter-btn {
+  width: 100%;
+  padding: 14px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  background: linear-gradient(135deg, #5a2800 0%, #3a1600 100%);
+  color: var(--amber-hot);
+  border: 1px solid var(--amber-dim);
+  cursor: pointer;
+  transition: background 100ms, box-shadow 100ms, transform 80ms;
+  box-shadow: 0 0 20px rgba(217,154,43,0.1);
+}
+.forge-enter-btn:hover {
+  background: linear-gradient(135deg, #7a3800 0%, #5a2200 100%);
+  box-shadow: 0 0 30px rgba(217,154,43,0.25);
+}
+.forge-enter-btn:active { transform: translateY(1px); }
+
+.forge-actions {
+  display: flex;
+  gap: 8px;
+}
+.forge-action-btn {
+  flex: 1;
+  padding: 10px 8px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  background: transparent;
+  color: var(--amber-dim);
+  border: 1px solid var(--rust);
+  cursor: pointer;
+  transition: color 80ms, border-color 80ms, background 80ms;
+  transform: none;
+}
+.forge-action-btn:hover:not(:disabled) {
+  color: var(--amber);
+  border-color: var(--amber-dim);
+  background: rgba(255,120,20,0.06);
+}
+.forge-action-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* ---------- Lore panel ---------- */
+#lore-panel {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 70;
+  width: min(680px, 92vw);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms, transform 160ms;
+}
+#lore-panel[data-open="true"] {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+#lore-panel[data-open="false"] {
+  transform: translate(-50%, -48%) scale(0.97);
+}
+
+.lore-frame {
+  background: linear-gradient(180deg, #0c0800 0%, #050200 100%);
+  border: 2px solid var(--rust);
+  box-shadow:
+    inset 0 0 40px rgba(255,80,10,0.04),
+    0 0 0 6px rgba(0,0,0,0.7),
+    0 0 60px rgba(200,80,10,0.15);
+}
+.lore-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 9px 14px;
+  background: linear-gradient(90deg, rgba(74,24,8,0.8) 0%, transparent 100%);
+  border-bottom: 1px solid var(--rust);
+}
+.lore-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--amber-hot);
+}
+.lore-close-btn {
+  background: transparent;
+  color: var(--amber-dim);
+  border: 1px solid var(--rust);
+  padding: 3px 10px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: color 80ms, border-color 80ms;
+  transform: none;
+}
+.lore-close-btn:hover { color: var(--amber); border-color: var(--amber-dim); }
+
+.lore-body {
+  padding: 18px 22px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.lore-body p.muted {
+  color: var(--amber-dim);
+  font-size: 17px;
+  line-height: 1.4;
+}
+.lore-textarea {
+  width: 100%;
+  min-height: 180px;
+  background: var(--bg-deep);
+  border: 1px solid var(--rust);
+  color: var(--bone);
+  font-family: 'VT323', monospace;
+  font-size: 20px;
+  line-height: 1.4;
+  padding: 10px 14px;
+  outline: none;
+  resize: vertical;
+  transition: border-color 80ms;
+}
+.lore-textarea:focus   { border-color: var(--amber-dim); }
+.lore-textarea::placeholder { color: var(--amber-dim); font-style: italic; opacity: 0.6; }
+
+.lore-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 22px 18px;
+  border-top: 1px solid var(--rust);
+  margin-top: 10px;
+}
+.lore-status {
+  font-size: 18px;
+  min-height: 24px;
+}
+.lore-status[data-state="idle"]   { color: transparent; }
+.lore-status[data-state="saving"] { color: var(--amber-dim); animation: blink 1s steps(2) infinite; }
+.lore-status[data-state="saved"]  { color: var(--ok); }
+.lore-status[data-state="error"]  { color: var(--blood); }
+
 /* ---------- Terminal tabs ---------- */
 .terminal-header {
   display: flex;
@@ -361,6 +563,20 @@ button:disabled { opacity: 0.4; cursor: wait; }
 .tab-btn:hover  { color: var(--amber-hot); border-color: var(--amber-hot); background: transparent; }
 .tab-btn.active { color: var(--bg-deep); background: var(--amber); border-color: var(--amber); }
 .tab-btn:active { transform: none; }
+.back-to-forge-btn {
+  background: transparent;
+  color: var(--amber-dim);
+  border: 1px solid var(--rust);
+  padding: 3px 10px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  margin-left: auto;
+  transition: color 80ms, border-color 80ms;
+  transform: none;
+}
+.back-to-forge-btn:hover { color: var(--amber); border-color: var(--amber-dim); }
 
 /* ---------- Config panel ---------- */
 .config-grid {

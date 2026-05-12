@@ -96,6 +96,43 @@
   <!-- The 3D viewport. Canvas is appended here by main.js. -->
   <div id="viewport"></div>
 
+  <!-- Forge hub: shown after login, before entering a room. -->
+  <div id="forge-hub" data-active="false">
+    <div class="forge-menu">
+      <div class="forge-menu-header">
+        <span class="forge-title">// THE FORGE</span>
+        <span class="forge-player-name" id="forge-player-name">—</span>
+      </div>
+      <div class="forge-menu-body">
+        <button id="forge-enter-btn" class="forge-enter-btn">▶ ENTER THE ROOM</button>
+        <div class="forge-actions">
+          <button class="forge-action-btn" id="forge-lore-btn">LORE BOOK</button>
+          <button class="forge-action-btn" id="forge-config-btn">CONFIG</button>
+          <button class="forge-action-btn" disabled title="Coming in v0.4">BESTIARY</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lore book panel: accessible from the Forge hub. -->
+  <div id="lore-panel" data-open="false">
+    <div class="lore-frame">
+      <div class="lore-header">
+        <span class="lore-title">// LORE BOOK</span>
+        <button class="lore-close-btn" id="lore-close-btn">✕ CLOSE</button>
+      </div>
+      <div class="lore-body">
+        <p class="muted">Write your world here. This description will shape every render — the tone, the creatures, the palette, the names. The more specific, the more coherent the output. Saved to the forge config and fed into the generation pipeline.</p>
+        <textarea id="lore-textarea" class="lore-textarea" spellcheck="false"
+                  placeholder="A shattered realm where crystallised magic drifts like snow. The old empire collapsed a century ago — its ruins still hum with residual energy. Creatures that survived the collapse mutated toward the dominant elemental frequencies of their region. The aesthetic is crumbling baroque, amber light through fractured stained glass, and the smell of ozone."></textarea>
+      </div>
+      <div class="lore-footer">
+        <div id="lore-status" class="lore-status" data-state="idle"></div>
+        <button id="lore-save-btn">INSCRIBE</button>
+      </div>
+    </div>
+  </div>
+
   <!-- CRT-ish overlay: scanlines + vignette + grain, pure CSS. -->
   <div id="crt-overlay" aria-hidden="true"></div>
 
@@ -142,6 +179,7 @@
           <button class="tab-btn" data-tab="config">CONFIG</button>
         </div>
         <span class="terminal-status" id="terminal-status">link: idle</span>
+        <button id="back-to-forge-btn" class="back-to-forge-btn">← FORGE</button>
       </div>
 
       <!-- SPAWN tab -->

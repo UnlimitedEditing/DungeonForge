@@ -47,7 +47,7 @@ And yet. It runs. The pipeline works end to end. The spider walks around. Your p
 
 ## Roadmap
 
-### v0.2 — The Forge
+### v0.2 — The Forge *(in progress)*
 The homestead. Right now there's no place to be between experiences — you're either in the room or you're not. The Forge fixes that: a dedicated environment where players configure, generate, and seed content before dropping into an experience, so render latency is absorbed in the lobby rather than mid-session.
 
 - Forge environment: stone hearth, floating ember particles, molten-light aesthetic with a touch of otherworldly whimsy — a place that feels like the thing generating your world
@@ -99,6 +99,14 @@ The layer that makes everything above permanent and communal:
 - Player-to-player inheritance: fork someone else's creature lineage, take it somewhere new
 
 ---
+
+## Coming soon — web deployment & mobile
+
+The frontend is pure static files and deploys to Vercel trivially. The backend can't run on serverless — render workers are long-running threads that take minutes, well beyond any function timeout. The right split is Vercel for `game/` and Railway or Render for `forge.py`, wired from the same repo with a single push. A small `FORGE_BASE` env var swap is the only code change needed.
+
+Mobile follows naturally from web deployment. `PointerLockControls` doesn't exist on mobile browsers — it needs replacing with a dual-joystick touch controller (left stick move, right stick look), responsive HUD CSS, and a tap-friendly spawn button. The rendering pipeline is entirely server-side so device capability is not a constraint. The amber aesthetic on an OLED phone screen is, frankly, very good.
+
+Both are blocked on the same thing: a Railway bill. Coming when the budget allows.
 
 ## Built on
 
