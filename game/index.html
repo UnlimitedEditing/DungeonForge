@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>DUNGEON-FORGE :: terminal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=VT323&family=Press+Start+2P&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+
+  <!-- Setup screen: shown on first launch or after session expiry. -->
+  <div id="setup-screen" data-active="true">
+    <div class="setup-frame">
+      <div class="setup-header">
+        <span class="setup-title">// DUNGEON-FORGE :: FORGE LINK</span>
+        <div class="setup-tabs">
+          <button class="setup-tab-btn active" data-setup-tab="register">REGISTER</button>
+          <button class="setup-tab-btn" data-setup-tab="login">LOGIN</button>
+        </div>
+      </div>
+
+      <!-- Register panel -->
+      <div class="setup-panel" data-setup-panel="register">
+        <p class="muted">Create a profile. Your Graydient API key is encrypted with your password — <strong>it cannot be recovered without it</strong>, so choose carefully.</p>
+        <div class="setup-field">
+          <label class="setup-field-label">Username</label>
+          <div class="setup-input-row">
+            <span class="terminal-caret">&gt;</span>
+            <input id="reg-username" type="text" autocomplete="username" spellcheck="false" placeholder="your handle" />
+          </div>
+        </div>
+        <div class="setup-field">
+          <label class="setup-field-label">Graydient API Key</label>
+          <div class="setup-input-row">
+            <span class="terminal-caret">&gt;</span>
+            <input id="reg-apikey" type="password" autocomplete="off" spellcheck="false" placeholder="paste your key" />
+          </div>
+        </div>
+        <div class="setup-field">
+          <label class="setup-field-label">Password</label>
+          <div class="setup-input-row">
+            <span class="terminal-caret">&gt;</span>
+            <input id="reg-password" type="password" autocomplete="new-password" placeholder="choose a strong password" />
+          </div>
+        </div>
+        <div class="setup-field">
+          <label class="setup-field-label">Confirm Password</label>
+          <div class="setup-input-row">
+            <span class="terminal-caret">&gt;</span>
+            <input id="reg-confirm" type="password" autocomplete="new-password" placeholder="repeat password" />
+          </div>
+        </div>
+        <div class="setup-footer">
+          <div id="reg-status" class="setup-status" data-state="idle"></div>
+          <button id="reg-btn">REGISTER</button>
+        </div>
+      </div>
+
+      <!-- Login panel -->
+      <div class="setup-panel" data-setup-panel="login" style="display:none">
+        <p class="muted">Session expired or returning from another device. Enter your credentials to restore access.</p>
+        <div class="setup-field">
+          <label class="setup-field-label">Username</label>
+          <div class="setup-input-row">
+            <span class="terminal-caret">&gt;</span>
+            <input id="login-username" type="text" autocomplete="username" spellcheck="false" placeholder="your handle" />
+          </div>
+        </div>
+        <div class="setup-field">
+          <label class="setup-field-label">Password</label>
+          <div class="setup-input-row">
+            <span class="terminal-caret">&gt;</span>
+            <input id="login-password" type="password" autocomplete="current-password" placeholder="your password" />
+          </div>
+        </div>
+        <div class="setup-footer">
+          <div id="login-status" class="setup-status" data-state="idle"></div>
+          <button id="login-btn">LOGIN</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- The 3D viewport. Canvas is appended here by main.js. -->
+  <div id="viewport"></div>
+
+  <!-- CRT-ish overlay: scanlines + vignette + grain, pure CSS. -->
+  <div id="crt-overlay" aria-hidden="true"></div>
+
+  <!-- Crosshair: only visible when pointer is locked. -->
+  <div id="crosshair" data-visible="false">
+    <span></span><span></span>
+  </div>
+
+  <!-- HUD frame: bottom bezel + side rails. -->
+  <div id="hud">
+    <div class="rivets top"></div>
+    <div class="rivets bottom"></div>
+    <div class="bezel">
+      <div class="bezel-section">
+        <div class="bezel-label">STATUS</div>
+        <div class="bezel-value" id="hud-status">READY</div>
+      </div>
+      <div class="bezel-section">
+        <div class="bezel-label">SPRITES</div>
+        <div class="bezel-value" id="hud-sprite-count">0</div>
+      </div>
+      <div class="bezel-section">
+        <div class="bezel-label">QUEUE</div>
+        <div class="bezel-value" id="hud-queue-count">0</div>
+      </div>
+      <div class="bezel-section">
+        <div class="bezel-label">PLAYER</div>
+        <div class="bezel-value" id="hud-player">—</div>
+      </div>
+      <div class="bezel-section">
+        <div class="bezel-label">POS</div>
+        <div class="bezel-value" id="hud-pos">0,0</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Spawn terminal: visible when NOT pointer-locked. -->
+  <div id="terminal" data-open="true">
+    <div class="terminal-frame">
+      <div class="terminal-header">
+        <span class="terminal-title">// DUNGEON-FORGE</span>
+        <div class="terminal-tabs">
+          <button class="tab-btn active" data-tab="spawn">SPAWN</button>
+          <button class="tab-btn" data-tab="config">CONFIG</button>
+        </div>
+        <span class="terminal-status" id="terminal-status">link: idle</span>
+      </div>
+
+      <!-- SPAWN tab -->
+      <div class="terminal-body tab-panel" data-panel="spawn">
+        <div class="terminal-instructions">
+          <p>CLICK VIEWPORT to lock controls. <kbd>WASD</kbd> move, <kbd>MOUSE</kbd> look.</p>
+          <p><kbd>ESC</kbd> or <kbd>TAB</kbd> returns to this terminal.</p>
+          <p class="muted">Enter a description below. The forge will render a sprite and stage it in the room. Render takes minutes — a placeholder appears while it works.</p>
+        </div>
+        <div class="terminal-prompt-row">
+          <span class="terminal-caret">&gt;</span>
+          <input id="spawn-input" type="text" autocomplete="off" spellcheck="false"
+                 placeholder="a gaunt skeleton warrior in rusted plate, wielding a notched sword" />
+          <button id="spawn-btn">SPAWN</button>
+        </div>
+        <div class="terminal-jobs">
+          <div class="terminal-jobs-label">// active jobs</div>
+          <div class="terminal-jobs-list" id="jobs-list"><div class="muted">no jobs.</div></div>
+        </div>
+      </div>
+
+      <!-- CONFIG tab -->
+      <div class="terminal-body tab-panel" data-panel="config" style="display:none">
+        <div class="config-grid">
+
+          <div class="config-section">
+            <div class="config-section-label">// workflows</div>
+            <div class="config-field">
+              <label class="config-label">Sprite workflow</label>
+              <input id="cfg-workflow" type="text" class="config-input" spellcheck="false" />
+            </div>
+            <div class="config-field">
+              <label class="config-label">Anim workflow</label>
+              <input id="cfg-anim-workflow" type="text" class="config-input" spellcheck="false" />
+            </div>
+          </div>
+
+          <div class="config-section">
+            <div class="config-section-label">// prompt scaffolding — use {user_prompt} as the player's text</div>
+            <div class="config-field">
+              <label class="config-label">Sprite prompt template</label>
+              <textarea id="cfg-sprite-template" class="config-textarea" rows="3" spellcheck="false"></textarea>
+            </div>
+            <div class="config-field">
+              <label class="config-label">Walk anim prompt template</label>
+              <textarea id="cfg-walk-template" class="config-textarea" rows="2" spellcheck="false"></textarea>
+            </div>
+          </div>
+
+          <div class="config-section">
+            <div class="config-section-label">// lore source — world description fed into the LLM composer (coming soon)</div>
+            <div class="config-field">
+              <textarea id="cfg-lore" class="config-textarea" rows="4" spellcheck="false"
+                        placeholder="Describe your world, its tone, factions, creatures, history… The composer will use this to shape every render and eventually drive procedural encounters."></textarea>
+            </div>
+          </div>
+
+        </div>
+        <div class="config-footer">
+          <div id="config-status" class="config-status" data-state="idle"></div>
+          <button id="cfg-save-btn">SAVE CONFIG</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+# Runtime data — never commit
+profiles.json
+config.json
+.env
+
+# Generated assets
+sprites/
+anims/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/

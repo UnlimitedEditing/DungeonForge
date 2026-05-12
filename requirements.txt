@@ -1,0 +1,10 @@
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.5
+requests>=2.31
+sseclient-py>=1.8
+Pillow>=10.0
+rembg[cpu]>=2.0.50
+python-dotenv>=1.0
+bcrypt>=4.0
+cryptography>=42.0
