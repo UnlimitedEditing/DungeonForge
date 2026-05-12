@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Recurse \"D:\\\\LatentCrawl\")",
+      "Bash(Select-Object FullName, Length)",
+      "Bash(Format-Table -AutoSize)",
+      "PowerShell(New-Item -ItemType Directory -Path \"D:\\\\LatentCrawl\\\\game\" -Force)"
+    ]
+  }
+}
