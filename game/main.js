@@ -522,6 +522,8 @@ roomScene.add(dais);
 // ─────────────────────────────────────────────
 
 const controls  = new PointerLockControls(roomCamera, renderer.domElement);
+controls.pointerSpeed = 0; // disable built-in rotation — we handle it ourselves below
+
 const termStatus = document.getElementById('terminal-status');
 
 function openTerminal()  { terminal.dataset.open = 'true';  crosshair.dataset.visible = 'false'; }
@@ -529,6 +531,21 @@ function closeTerminal() { terminal.dataset.open = 'false'; crosshair.dataset.vi
 
 controls.addEventListener('lock',   () => { closeTerminal(); termStatus.textContent = 'link: locked'; });
 controls.addEventListener('unlock', () => { openTerminal();  termStatus.textContent = 'link: idle';   });
+
+// Custom mouselook — accumulates yaw/pitch as plain floats to avoid
+// the gimbal-lock snap that PointerLockControls' setFromQuaternion
+// round-trip produces when pitch approaches ±90°.
+let _yaw = 0, _pitch = 0;
+const LOOK_SPEED   = 0.0018;
+const PITCH_LIMIT  = Math.PI * 0.44; // ±~79° — keeps clear of gimbal lock
+
+document.addEventListener('mousemove', (e) => {
+  if (!controls.isLocked) return;
+  _yaw   -= e.movementX * LOOK_SPEED;
+  _pitch -= e.movementY * LOOK_SPEED;
+  _pitch  = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, _pitch));
+  roomCamera.quaternion.setFromEuler(new THREE.Euler(_pitch, _yaw, 0, 'YXZ'));
+});
 
 document.getElementById('viewport').addEventListener('click', () => {
   if (appMode !== 'room') return;
