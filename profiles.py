@@ -40,7 +40,7 @@ _lock    = threading.Lock()
 _profiles: dict = {}
 _session: dict  = {}   # profile_id -> decrypted api_key (in-memory, lost on restart)
 
-PBKDF2_ITERATIONS = 480_000
+PBKDF2_ITERATIONS = 100_000
 
 
 class AuthError(Exception):
@@ -49,12 +49,12 @@ class AuthError(Exception):
 
 # ---------- crypto helpers ----------
 
-def _derive_fernet_key(password: str, salt: bytes) -> bytes:
+def _derive_fernet_key(password: str, salt: bytes, iterations: int = PBKDF2_ITERATIONS) -> bytes:
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
         salt=salt,
-        iterations=PBKDF2_ITERATIONS,
+        iterations=iterations,
     )
     return base64.urlsafe_b64encode(kdf.derive(password.encode()))
 
@@ -66,8 +66,8 @@ def _encrypt_key(api_key: str, password: str) -> tuple[str, str]:
     return base64.b64encode(encrypted).decode(), base64.b64encode(salt).decode()
 
 
-def _decrypt_key(encrypted_b64: str, salt_b64: str, password: str) -> str:
-    fkey = _derive_fernet_key(password, base64.b64decode(salt_b64))
+def _decrypt_key(encrypted_b64: str, salt_b64: str, password: str, iterations: int = PBKDF2_ITERATIONS) -> str:
+    fkey = _derive_fernet_key(password, base64.b64decode(salt_b64), iterations)
     try:
         return Fernet(fkey).decrypt(base64.b64decode(encrypted_b64)).decode()
     except InvalidToken:
@@ -116,6 +116,7 @@ def register(username: str, password: str, api_key: str) -> dict:
             "password_hash":     password_hash,
             "api_key_encrypted": enc_key,
             "api_key_salt":      salt,
+            "kdf_iterations":    PBKDF2_ITERATIONS,
             "created_at":        time.time(),
         }
         _save()
@@ -141,10 +142,12 @@ def login(username: str, password: str) -> dict:
         if not bcrypt.checkpw(password.encode(), profile["password_hash"].encode()):
             raise AuthError("invalid username or password")
 
+        iters = profile.get("kdf_iterations", 480_000)  # 480k = legacy default
         api_key = _decrypt_key(
             profile["api_key_encrypted"],
             profile["api_key_salt"],
             password,
+            iters,
         )
         _session[profile_id] = api_key
 

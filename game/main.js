@@ -66,6 +66,7 @@ const crosshair  = document.getElementById('crosshair');
 
 function showForgeHub() {
   forgeHubEl.dataset.active = 'true';
+  terminal.dataset.open = 'false';
   document.getElementById('forge-player-name').textContent = profileUsername || '—';
 }
 function hideForgeHub() {
@@ -256,13 +257,11 @@ fillLight.position.set(0, 3, 7);
 forgeScene.add(fillLight);
 
 // Floor
-forgeScene.add(Object.assign(
-  new THREE.Mesh(
-    new THREE.PlaneGeometry(18, 18),
-    new THREE.MeshStandardMaterial({ color: 0x110800, roughness: 1 }),
-  ),
-  { rotation: new THREE.Euler(-Math.PI / 2, 0, 0) }
-));
+{
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(18, 18), new THREE.MeshStandardMaterial({ color: 0x110800, roughness: 1 }));
+  m.rotation.x = -Math.PI / 2;
+  forgeScene.add(m);
+}
 
 // Walls
 const forgWallMat = new THREE.MeshStandardMaterial({ color: 0x1a0e06, roughness: 1 });
@@ -279,10 +278,11 @@ addForgeWall( 9,   0, -Math.PI / 2);
 const stoneMat = new THREE.MeshStandardMaterial({ color: 0x1e1008, roughness: 0.95 });
 
 // Forge platform
-forgeScene.add(Object.assign(
-  new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.2, 0.4, 20), stoneMat),
-  { position: new THREE.Vector3(0, 0.2, 0) }
-));
+{
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.2, 0.4, 20), stoneMat);
+  m.position.set(0, 0.2, 0);
+  forgeScene.add(m);
+}
 
 // Basin ring
 const basinRing = new THREE.Mesh(
@@ -294,21 +294,18 @@ basinRing.position.set(0, 0.42, 0);
 forgeScene.add(basinRing);
 
 // Anvil block
-forgeScene.add(Object.assign(
-  new THREE.Mesh(
-    new THREE.BoxGeometry(0.9, 0.55, 0.45),
-    new THREE.MeshStandardMaterial({ color: 0x252015, roughness: 0.7, metalness: 0.35 }),
-  ),
-  { position: new THREE.Vector3(0, 0.9, 0) }
-));
+{
+  const m = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.55, 0.45), new THREE.MeshStandardMaterial({ color: 0x252015, roughness: 0.7, metalness: 0.35 }));
+  m.position.set(0, 0.9, 0);
+  forgeScene.add(m);
+}
 // Anvil horn
-forgeScene.add(Object.assign(
-  new THREE.Mesh(
-    new THREE.CylinderGeometry(0.05, 0.15, 0.4, 8),
-    new THREE.MeshStandardMaterial({ color: 0x252015, roughness: 0.7, metalness: 0.35 }),
-  ),
-  { position: new THREE.Vector3(0.52, 0.8, 0), rotation: new THREE.Euler(0, 0, -Math.PI / 2) }
-));
+{
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.15, 0.4, 8), new THREE.MeshStandardMaterial({ color: 0x252015, roughness: 0.7, metalness: 0.35 }));
+  m.position.set(0.52, 0.8, 0);
+  m.rotation.z = -Math.PI / 2;
+  forgeScene.add(m);
+}
 
 // Stone pillars at corners
 const pillarMat = new THREE.MeshStandardMaterial({ color: 0x160c04, roughness: 1 });
@@ -533,7 +530,7 @@ function closeTerminal() { terminal.dataset.open = 'false'; crosshair.dataset.vi
 controls.addEventListener('lock',   () => { closeTerminal(); termStatus.textContent = 'link: locked'; });
 controls.addEventListener('unlock', () => { openTerminal();  termStatus.textContent = 'link: idle';   });
 
-renderer.domElement.addEventListener('click', () => {
+document.getElementById('viewport').addEventListener('click', () => {
   if (appMode !== 'room') return;
   if (terminal.dataset.open === 'true' && setupScreen.dataset.active !== 'true') controls.lock();
 });
