@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import queue
+import random
 import threading
 import time
 import uuid
@@ -58,7 +59,9 @@ log = logging.getLogger("forge")
 # Templates are read from config at job-creation time so player edits
 # in the config panel take effect immediately without a server restart.
 
-VARIANT_TYPES = ("walk", "corpse", "damage", "back")
+ENTITY_VARIANT_TYPES = ("walk", "corpse", "damage", "back")
+ITEM_VARIANT_TYPES   = ("icon", "world")
+VARIANT_TYPES        = ENTITY_VARIANT_TYPES + ITEM_VARIANT_TYPES
 
 # Key-pose suffixes for walk cycle frames.
 # Appended to the user prompt when rendering each frame of a sprite sheet.
@@ -80,9 +83,9 @@ def build_sprite_prompt(user_prompt: str) -> str:
     return config.get("sprite_prompt_template").format(user_prompt=user_prompt.strip())
 
 def build_variant_prompt(variant_type: str) -> str:
-    """Return the pose-only prompt for a static variant. No character description —
+    """Return the prompt for a variant render. No subject description —
     the edit workflow's init_image already carries identity."""
-    return config.get(f"{variant_type}_prompt_template")
+    return config.get(f"{variant_type}_prompt_template") or ""
 
 def build_frame_prompt(suffix: str) -> str:
     """Return the pose-only prompt for a single walk-cycle frame. No character
@@ -92,6 +95,43 @@ def build_frame_prompt(suffix: str) -> str:
         "full body visible, centered composition, clean solid white background, "
         "no shadows on the floor, clear silhouette"
     )
+
+# ---------- stat generation ----------
+
+def roll_entity_stats() -> dict:
+    """Roll randomised combat stats for a newly created entity."""
+    import config as _cfg
+    level_min = int(_cfg.get("entity_level_min") or 1)
+    level_max = int(_cfg.get("entity_level_max") or 5)
+    level  = random.randint(level_min, level_max)
+    max_hp = 20 + (level - 1) * 10
+    return {
+        "level":      level,
+        "max_hp":     max_hp,
+        "hp":         max_hp,
+        "attack":     5 + (level - 1) * 3,
+        "defense":    2 + (level - 1) * 2,
+        "xp_reward":  level * 25,
+    }
+
+
+def generate_item_stats(item_type: str, subtype: str, rarity: str) -> dict:
+    """Derive item stats from type, subtype, and rarity."""
+    mult = {"common": 1.0, "uncommon": 1.5, "rare": 2.5, "legendary": 4.0}.get(rarity, 1.0)
+    base: dict = {"attack": 0, "defense": 0, "range": 0, "hp_restore": 0}
+    if item_type == "weapon":
+        base["attack"]     = max(1, int(8 * mult))
+        if subtype == "ranged":
+            base["range"]  = 15
+    elif item_type == "armor":
+        base["defense"]    = max(1, int(5 * mult))
+    elif item_type == "consumable":
+        base["hp_restore"] = max(1, int(30 * mult))
+    elif item_type == "accessory":
+        base["attack"]     = max(1, int(2 * mult))
+        base["defense"]    = max(1, int(2 * mult))
+    return base
+
 
 # ---------- models ----------
 
@@ -105,11 +145,16 @@ class LoginRequest(BaseModel):
     password: str
 
 class ConfigUpdate(BaseModel):
-    workflow: str
-    variant_workflow: str
-    variant_strength: float
-    sprite_prompt_template: str
-    lore: str
+    model_config = {"extra": "allow"}
+    workflow: str = ""
+    variant_workflow: str = ""
+    variant_strength: float = 0.65
+    sprite_prompt_template: str = ""
+    lore: str = ""
+
+    def full_dict(self) -> dict:
+        """Return all fields including extras."""
+        return {**self.model_dump(), **self.model_extra}
 
 class JobRequest(BaseModel):
     prompt: str
@@ -118,6 +163,17 @@ class JobRequest(BaseModel):
 class VariantRequest(BaseModel):
     profile_id: str
     prompt: Optional[str] = None   # if provided, overrides the template for this regen
+
+class ItemRequest(BaseModel):
+    profile_id: str
+    name: str
+    description: str
+    type: str       # weapon | armor | consumable | accessory
+    subtype: str = ""   # melee | ranged (weapon); body | helmet | boots (armor)
+    rarity: str = "common"
+
+class EquipRequest(BaseModel):
+    item: Optional[dict] = None   # None to unequip
 
 class PoseRegisterRequest(BaseModel):
     profile_id: str
@@ -136,6 +192,9 @@ class Job(BaseModel):
     error: Optional[str] = None
     created_at: float
     finished_at: Optional[float] = None
+    job_type: str = "entity"           # "entity" | "item"
+    entity_stats: Optional[dict] = None   # combat stats, rolled for entity jobs
+    item_meta: Optional[dict] = None      # {name, type, subtype, rarity, stats} for item jobs
 
 class VariantJob(BaseModel):
     id: str
@@ -318,9 +377,11 @@ def render_worker():
             sprite_name = f"{job.id}.png"
             process_sprite(resp.content, os.path.join(SPRITES_DIR, sprite_name))
 
-            # Auto-queue all variant states via the edit workflow.
+            # Auto-queue variant states: entity jobs get combat poses,
+            # item jobs get presentation variants (icon + world).
+            auto_vtypes = ENTITY_VARIANT_TYPES if job.job_type == "entity" else ITEM_VARIANT_TYPES
             variant_ids: dict = {}
-            for vtype in VARIANT_TYPES:
+            for vtype in auto_vtypes:
                 vid = uuid.uuid4().hex[:8]
                 vprompt = build_variant_prompt(vtype)
                 vj = VariantJob(
@@ -473,7 +534,7 @@ def get_config():
 
 @app.put("/config")
 def set_config(cfg: ConfigUpdate):
-    updated = config.update(cfg.model_dump())
+    updated = config.update(cfg.full_dict())
     log.info("config updated: workflow=%s variant_workflow=%s strength=%.2f",
              updated["workflow"], updated["variant_workflow"], updated["variant_strength"])
     return updated
@@ -523,6 +584,8 @@ def create_job(req: JobRequest):
         full_prompt=build_sprite_prompt(prompt),
         status="queued",
         created_at=time.time(),
+        job_type="entity",
+        entity_stats=roll_entity_stats(),
     )
     with JOBS_LOCK:
         JOBS[job_id] = job
@@ -584,6 +647,85 @@ def trigger_variant(sprite_job_id: str, variant_type: str, req: VariantRequest):
 
     log.info("[%s] variant %s re-queued as %s", sprite_job_id, variant_type, var_id)
     return vj
+
+# -- items --
+
+@app.post("/items")
+def create_item(req: ItemRequest):
+    if not profiles.get_api_key(req.profile_id):
+        raise HTTPException(401, "session expired — please log in again")
+    description = req.description.strip()
+    if not description:
+        raise HTTPException(400, "description is empty")
+
+    stats = generate_item_stats(req.type, req.subtype, req.rarity)
+    item_prompt = config.get("item_prompt_template").format(item_description=description)
+
+    job_id = uuid.uuid4().hex[:8]
+    job = Job(
+        id=job_id,
+        profile_id=req.profile_id,
+        prompt=req.description,
+        full_prompt=item_prompt,
+        status="queued",
+        created_at=time.time(),
+        job_type="item",
+        item_meta={
+            "name":    req.name,
+            "type":    req.type,
+            "subtype": req.subtype,
+            "rarity":  req.rarity,
+            "stats":   stats,
+        },
+    )
+    with JOBS_LOCK:
+        JOBS[job_id] = job
+    JOB_QUEUE.put(job_id)
+    log.info("[%s] item queued: %s (%s/%s)", job_id, req.name, req.type, req.rarity)
+    return job
+
+@app.get("/items/{job_id}")
+def get_item(job_id: str):
+    with JOBS_LOCK:
+        if job_id not in JOBS or JOBS[job_id].job_type != "item":
+            raise HTTPException(404, "no such item")
+        return JOBS[job_id]
+
+@app.get("/items")
+def list_items():
+    with JOBS_LOCK:
+        return [j for j in JOBS.values() if j.job_type == "item"]
+
+# -- player stats --
+
+@app.get("/profiles/{profile_id}/stats")
+def get_profile_stats(profile_id: str):
+    stats = profiles.get_stats(profile_id)
+    if stats is None:
+        raise HTTPException(404, "profile not found")
+    return stats
+
+@app.put("/profiles/{profile_id}/stats")
+def put_profile_stats(profile_id: str, patch: dict):
+    result = profiles.update_stats(profile_id, patch)
+    if result is None:
+        raise HTTPException(404, "profile not found")
+    return result
+
+@app.post("/profiles/{profile_id}/inventory")
+def add_inventory(profile_id: str, item: dict):
+    profiles.add_inventory_item(profile_id, item)
+    return {"ok": True}
+
+@app.delete("/profiles/{profile_id}/inventory/{item_id}")
+def remove_inventory(profile_id: str, item_id: str):
+    profiles.remove_inventory_item(profile_id, item_id)
+    return {"ok": True}
+
+@app.put("/profiles/{profile_id}/equipment/{slot}")
+def equip_item_endpoint(profile_id: str, slot: str, body: EquipRequest):
+    profiles.set_equipment(profile_id, slot, body.item)
+    return {"ok": True}
 
 # -- pose tools --
 

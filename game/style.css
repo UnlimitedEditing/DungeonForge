@@ -1032,6 +1032,359 @@ button:disabled { opacity: 0.4; cursor: wait; }
 .setup-status[data-state="error"]   { color: var(--blood); }
 .setup-status[data-state="ok"]      { color: var(--ok); }
 
+/* ── Stats HUD (HP / XP / Level) ────────────── */
+#stats-hud {
+  position: fixed;
+  left: 14px;
+  bottom: 82px;
+  z-index: 30;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 190px;
+  opacity: 0;
+  transition: opacity 200ms;
+}
+#stats-hud[data-visible="true"] { opacity: 1; }
+
+.stats-level-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.stats-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: var(--amber-dim);
+  letter-spacing: 0.08em;
+  width: 22px;
+  flex-shrink: 0;
+}
+.stats-level-val {
+  font-size: 26px;
+  color: var(--amber-hot);
+  text-shadow: 0 0 8px rgba(255,192,74,0.5);
+  line-height: 1;
+}
+.stats-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.stats-bar-track {
+  flex: 1;
+  height: 8px;
+  background: rgba(0,0,0,0.6);
+  border: 1px solid var(--rust);
+  position: relative;
+  overflow: hidden;
+}
+.stats-bar-fill {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 100%;
+  transition: width 200ms, background 200ms;
+}
+.stats-hp-fill  { background: #22bb22; }
+.stats-xp-fill  { background: var(--amber-dim); }
+.stats-bar-val {
+  font-size: 14px;
+  color: var(--amber-dim);
+  white-space: nowrap;
+  min-width: 64px;
+  text-align: right;
+}
+
+/* ── Hit flash ───────────────────────────────── */
+#hit-flash {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 48;
+  background: rgba(180, 0, 0, 0);
+  transition: background 80ms ease-out;
+}
+#hit-flash.active { background: rgba(180, 0, 0, 0.32); }
+
+/* ── Level-up notification ───────────────────── */
+#levelup-notification {
+  position: fixed;
+  left: 50%;
+  top: 28%;
+  transform: translateX(-50%);
+  z-index: 50;
+  pointer-events: none;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 300ms;
+}
+#levelup-notification[data-visible="true"] { opacity: 1; }
+.levelup-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 18px;
+  color: var(--amber-hot);
+  text-shadow: 0 0 24px rgba(255,192,74,0.9);
+  letter-spacing: 0.12em;
+}
+.levelup-sub {
+  font-size: 20px;
+  color: var(--bone);
+  margin-top: 8px;
+  text-shadow: 0 0 8px rgba(216,198,160,0.5);
+}
+
+/* ── Pickup prompt ───────────────────────────── */
+#pickup-prompt {
+  position: fixed;
+  left: 50%;
+  bottom: 116px;
+  transform: translateX(-50%);
+  z-index: 35;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  color: var(--bone);
+  background: rgba(0,0,0,0.72);
+  padding: 7px 16px;
+  border: 1px solid var(--amber-dim);
+  pointer-events: none;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 160ms;
+}
+#pickup-prompt[data-visible="true"] { opacity: 1; }
+#pickup-prompt kbd {
+  display: inline-block;
+  padding: 0 6px;
+  font-family: inherit;
+  font-size: inherit;
+  background: var(--steel);
+  border: 1px solid var(--rivet);
+  border-bottom-width: 2px;
+  color: var(--amber-hot);
+  margin-right: 6px;
+}
+
+/* ── Floating damage numbers ─────────────────── */
+.damage-number {
+  position: fixed;
+  pointer-events: none;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 13px;
+  z-index: 45;
+  animation: damage-float 0.85s ease-out forwards;
+  white-space: nowrap;
+}
+.damage-number.enemy-hit  { color: #ff3333; text-shadow: 0 0 8px rgba(255,0,0,0.6); }
+.damage-number.player-hit { color: #ff8c00; text-shadow: 0 0 8px rgba(255,140,0,0.6); }
+@keyframes damage-float {
+  0%   { transform: translateY(0);     opacity: 1; }
+  100% { transform: translateY(-64px); opacity: 0; }
+}
+
+/* ── Inventory panel ─────────────────────────── */
+#inventory-panel {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 65;
+  width: min(720px, 95vw);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms, transform 160ms;
+}
+#inventory-panel[data-open="true"] {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+#inventory-panel[data-open="false"] {
+  transform: translate(-50%, -48%) scale(0.97);
+}
+
+.inventory-frame {
+  background: linear-gradient(180deg, #0b0900 0%, #040200 100%);
+  border: 2px solid var(--amber-dim);
+  box-shadow:
+    inset 0 0 40px rgba(217,154,43,0.05),
+    0 0 0 6px rgba(0,0,0,0.7),
+    0 0 60px rgba(217,154,43,0.12);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+.inventory-header {
+  display: flex;
+  align-items: center;
+  padding: 9px 14px;
+  background: linear-gradient(90deg, rgba(74,44,8,0.8) 0%, transparent 100%);
+  border-bottom: 1px solid var(--amber-dim);
+  gap: 12px;
+  flex-shrink: 0;
+}
+.inventory-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--amber-hot);
+}
+.inventory-stats-display {
+  flex: 1;
+  font-size: 16px;
+  color: var(--amber-dim);
+  text-align: center;
+}
+.inventory-close-btn {
+  background: transparent;
+  color: var(--amber-dim);
+  border: 1px solid var(--rust);
+  padding: 3px 10px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: color 80ms, border-color 80ms;
+  transform: none;
+}
+.inventory-close-btn:hover { color: var(--amber); border-color: var(--amber-dim); }
+
+.inventory-body {
+  display: flex;
+  gap: 0;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Equipment panel (left) */
+.equipment-panel {
+  width: 180px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--rust);
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 8px;
+  overflow-y: auto;
+}
+.equipment-panel-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: var(--amber-dim);
+  letter-spacing: 0.1em;
+  margin-bottom: 4px;
+}
+.equipment-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.equipment-slot {
+  border: 1px solid var(--rust);
+  padding: 6px 8px;
+  cursor: default;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 42px;
+  transition: border-color 80ms, background 80ms;
+}
+.equipment-slot.equipment-slot-filled {
+  border-color: var(--amber-dim);
+  background: rgba(217,154,43,0.05);
+  cursor: pointer;
+}
+.equipment-slot.equipment-slot-filled:hover {
+  border-color: var(--amber);
+  background: rgba(217,154,43,0.1);
+}
+.slot-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 6px;
+  color: var(--amber-dim);
+  letter-spacing: 0.06em;
+}
+.slot-item {
+  font-size: 15px;
+  color: var(--amber);
+  line-height: 1.2;
+}
+.slot-item-stats {
+  font-size: 13px;
+  color: var(--amber-dim);
+}
+.slot-empty {
+  font-size: 18px;
+  color: var(--rust);
+}
+
+/* Bag grid (right) */
+.inventory-grid-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 8px;
+  overflow-y: auto;
+  min-width: 0;
+}
+.inventory-grid-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: var(--amber-dim);
+  letter-spacing: 0.1em;
+}
+.inventory-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+.inv-cell {
+  border: 1px solid var(--rust);
+  min-height: 54px;
+  display: flex;
+  flex-direction: column;
+  padding: 5px 6px;
+  gap: 2px;
+  cursor: default;
+  transition: border-color 80ms, background 80ms;
+  position: relative;
+}
+.inv-cell.inv-cell-filled {
+  border-color: var(--amber-dim);
+  background: rgba(217,154,43,0.04);
+  cursor: pointer;
+}
+.inv-cell.inv-cell-filled:hover {
+  border-color: var(--amber);
+  background: rgba(217,154,43,0.09);
+}
+.inv-item-name {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 5.5px;
+  color: var(--amber);
+  line-height: 1.4;
+  word-break: break-word;
+}
+.inv-item-type {
+  font-size: 13px;
+  color: var(--amber-dim);
+  margin-top: auto;
+}
+.inv-item-rarity {
+  position: absolute;
+  top: 3px; right: 4px;
+  font-size: 10px;
+}
+
+/* Rarity colours */
+.rarity-common    { color: var(--amber-dim); }
+.rarity-uncommon  { color: #4aaa4a; }
+.rarity-rare      { color: #4a7add; }
+.rarity-legendary { color: #dd8800; }
+
 /* ── Pose Editor ─────────────────────────────── */
 #pose-editor-panel { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; z-index:74; pointer-events:none; }
 #pose-editor-panel[data-open="true"] { pointer-events:auto; }
@@ -1070,4 +1423,269 @@ button:disabled { opacity: 0.4; cursor: wait; }
 .pose-refs { display:flex; flex-direction:column; gap:4px; }
 .pose-ref-item { font-family:VT323,monospace; font-size:16px; display:flex; justify-content:space-between; }
 .pose-ref-item span:first-child { color:var(--amber-dim); }
+
+/* =====================================================================
+   HUB SUB-PANELS — shared frame used by Arcanum, Machinarium, Sub Lab
+   ===================================================================== */
+
+/* Generic panel overlay */
+#arcanum-panel,
+#machinarium-panel,
+#substance-panel {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 72;
+  width: min(640px, 94vw);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms, transform 160ms;
+}
+#substance-panel { width: min(860px, 96vw); }
+
+#arcanum-panel[data-open="true"],
+#machinarium-panel[data-open="true"],
+#substance-panel[data-open="true"] {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+#arcanum-panel[data-open="false"],
+#machinarium-panel[data-open="false"],
+#substance-panel[data-open="false"] {
+  transform: translate(-50%, -48%) scale(0.97);
+}
+
+/* Frame */
+.hub-sub-frame,
+.hub-sub-frame-wide {
+  background: linear-gradient(180deg, #0a0800 0%, #040200 100%);
+  border: 2px solid var(--rust);
+  box-shadow:
+    inset 0 0 40px rgba(255,80,10,0.04),
+    0 0 0 6px rgba(0,0,0,0.7),
+    0 0 60px rgba(200,80,10,0.15);
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header */
+.hub-sub-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 9px 14px;
+  background: linear-gradient(90deg, rgba(74,24,8,0.8) 0%, transparent 100%);
+  border-bottom: 1px solid var(--rust);
+  flex-shrink: 0;
+}
+.hub-sub-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--amber-hot);
+}
+.hub-sub-close-btn {
+  background: transparent;
+  color: var(--amber-dim);
+  border: 1px solid var(--rust);
+  padding: 3px 10px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  cursor: pointer;
+  transition: color 80ms, border-color 80ms;
+  transform: none;
+}
+.hub-sub-close-btn:hover { color: var(--amber); border-color: var(--amber-dim); }
+
+/* Body */
+.hub-sub-body {
+  padding: 16px 18px 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* Sections */
+.hub-sub-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hub-sub-section-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  letter-spacing: 0.1em;
+  color: var(--amber-dim);
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(90,40,10,0.4);
+}
+
+/* 2-column grid for inputs */
+.hub-sub-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 14px;
+}
+
+/* Fields */
+.hub-sub-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.hub-sub-label {
+  font-size: 14px;
+  color: var(--amber-dim);
+}
+
+/* Inputs */
+.hub-sub-input {
+  background: rgba(255,160,30,0.05);
+  border: 1px solid var(--rust);
+  color: var(--amber);
+  font-family: 'VT323', monospace;
+  font-size: 20px;
+  padding: 2px 6px;
+  outline: none;
+  transition: border-color 80ms;
+  width: 100%;
+}
+.hub-sub-input:focus { border-color: var(--amber-dim); }
+
+.hub-sub-select {
+  background: #0a0800;
+  border: 1px solid var(--rust);
+  color: var(--amber);
+  font-family: 'VT323', monospace;
+  font-size: 18px;
+  padding: 2px 6px;
+  outline: none;
+  cursor: pointer;
+}
+.hub-sub-select:focus { border-color: var(--amber-dim); }
+
+/* Footer row */
+.hub-sub-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+.hub-sub-status {
+  font-size: 16px;
+  color: var(--amber-dim);
+  transition: color 120ms;
+}
+.hub-sub-status[data-state="saving"]  { color: var(--amber); }
+.hub-sub-status[data-state="saved"]   { color: var(--ok); }
+.hub-sub-status[data-state="error"]   { color: var(--blood); }
+.hub-sub-save-btn {
+  background: transparent;
+  border: 1px solid var(--amber-dim);
+  color: var(--amber);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition: background 80ms, color 80ms;
+  transform: none;
+}
+.hub-sub-save-btn:hover { background: var(--amber); color: var(--bg-deep); }
+.hub-sub-action-btn {
+  background: transparent;
+  border: 1px solid var(--rust);
+  color: var(--amber-dim);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  padding: 6px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 80ms, color 80ms;
+  transform: none;
+  flex-shrink: 0;
+}
+.hub-sub-action-btn:hover { background: var(--rust); color: var(--amber); }
+
+/* ─── Arcanum specific ─── */
+.arcanum-sheet {
+  font-size: 22px;
+  color: var(--amber);
+  background: rgba(255,160,30,0.04);
+  border: 1px solid var(--rust);
+  padding: 8px 12px;
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.arcanum-sheet-stat { display: flex; flex-direction: column; gap: 1px; }
+.arcanum-sheet-key  { font-size: 13px; color: var(--amber-dim); }
+.arcanum-sheet-val  { font-size: 26px; color: var(--amber-hot); }
+
+.arcanum-ability-slots { display: flex; gap: 8px; }
+.arcanum-ability-slot {
+  flex: 1;
+  border: 1px solid var(--rust);
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+}
+.slot-num {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: var(--amber-dim);
+  width: 20px;
+}
+
+/* ─── Substance Lab specific ─── */
+.substance-drop-pool {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.sub-drop-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid rgba(74,40,24,0.5);
+  background: rgba(255,160,30,0.03);
+  font-size: 18px;
+}
+.sub-drop-row-name   { flex: 1; color: var(--amber); }
+.sub-drop-row-type   { font-size: 14px; color: var(--amber-dim); width: 80px; }
+.sub-drop-row-stat   { font-size: 14px; color: var(--bone); width: 100px; }
+.sub-drop-row-rarity { font-size: 13px; width: 70px; }
+.sub-drop-remove-btn {
+  background: transparent;
+  border: 1px solid #3a1010;
+  color: #6a2020;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  padding: 3px 6px;
+  cursor: pointer;
+  transition: background 80ms, color 80ms;
+  transform: none;
+}
+.sub-drop-remove-btn:hover { background: var(--blood); color: var(--amber); }
+
+.substance-add-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.substance-forge-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
 .pose-ref-item span:last-child { color:var(--ok); }

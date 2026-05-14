@@ -40,6 +40,17 @@ _lock    = threading.Lock()
 _profiles: dict = {}
 _session: dict  = {}   # profile_id -> decrypted api_key (in-memory, lost on restart)
 
+_DEFAULT_STATS: dict = {
+    "level":      1,
+    "xp":         0,
+    "xp_to_next": 100,
+    "max_hp":     100,
+    "attack":     10,
+    "defense":    5,
+    "inventory":  [],   # list of item dicts
+    "equipment":  {},   # slot -> item dict
+}
+
 PBKDF2_ITERATIONS = 100_000
 
 
@@ -171,3 +182,73 @@ def get_public(profile_id: str) -> Optional[dict]:
         "created_at":     p["created_at"],
         "active_session": profile_id in _session,
     }
+
+
+def get_stats(profile_id: str) -> Optional[dict]:
+    """Return the player's game stats dict, creating defaults if absent."""
+    with _lock:
+        p = _profiles.get(profile_id)
+        if not p:
+            return None
+        if "stats" not in p:
+            p["stats"] = dict(_DEFAULT_STATS)
+            p["stats"]["inventory"] = list(_DEFAULT_STATS["inventory"])
+            p["stats"]["equipment"] = dict(_DEFAULT_STATS["equipment"])
+            _save()
+        return dict(p["stats"])
+
+
+def update_stats(profile_id: str, patch: dict) -> Optional[dict]:
+    """Merge allowed keys from patch into the player's stats. Returns updated stats."""
+    allowed = set(_DEFAULT_STATS.keys())
+    with _lock:
+        if profile_id not in _profiles:
+            return None
+        p = _profiles[profile_id]
+        if "stats" not in p:
+            p["stats"] = dict(_DEFAULT_STATS)
+            p["stats"]["inventory"] = list(_DEFAULT_STATS["inventory"])
+            p["stats"]["equipment"] = dict(_DEFAULT_STATS["equipment"])
+        for k, v in patch.items():
+            if k in allowed:
+                p["stats"][k] = v
+        _save()
+        return dict(p["stats"])
+
+
+def add_inventory_item(profile_id: str, item: dict) -> None:
+    with _lock:
+        if profile_id not in _profiles:
+            return
+        p = _profiles[profile_id]
+        if "stats" not in p:
+            p["stats"] = dict(_DEFAULT_STATS)
+            p["stats"]["inventory"] = []
+            p["stats"]["equipment"] = {}
+        p["stats"]["inventory"].append(item)
+        _save()
+
+
+def remove_inventory_item(profile_id: str, item_id: str) -> None:
+    with _lock:
+        if profile_id not in _profiles:
+            return
+        inv = _profiles[profile_id].get("stats", {}).get("inventory", [])
+        _profiles[profile_id]["stats"]["inventory"] = [i for i in inv if i.get("id") != item_id]
+        _save()
+
+
+def set_equipment(profile_id: str, slot: str, item: Optional[dict]) -> None:
+    with _lock:
+        if profile_id not in _profiles:
+            return
+        p = _profiles[profile_id]
+        if "stats" not in p:
+            p["stats"] = dict(_DEFAULT_STATS)
+            p["stats"]["inventory"] = []
+            p["stats"]["equipment"] = {}
+        if item is None:
+            p["stats"]["equipment"].pop(slot, None)
+        else:
+            p["stats"]["equipment"][slot] = item
+        _save()

@@ -121,23 +121,20 @@
             <div class="hub-room-tagline">Resume saved experiences.</div>
             <div class="hub-room-sealed-label">COMING SOON</div>
           </div>
-          <div class="hub-room-card hub-room-sealed">
+          <div class="hub-room-card" id="hub-machinarium-card">
             <div class="hub-room-sigil">⚙</div>
             <div class="hub-room-name">MACHINARIUM</div>
             <div class="hub-room-tagline">Configure rules, systems, and game modes.</div>
-            <div class="hub-room-sealed-label">SEALED</div>
           </div>
-          <div class="hub-room-card hub-room-sealed">
+          <div class="hub-room-card" id="hub-arcanum-card">
             <div class="hub-room-sigil">✧</div>
             <div class="hub-room-name">ARCANUM</div>
             <div class="hub-room-tagline">Define skills, abilities, and progression.</div>
-            <div class="hub-room-sealed-label">SEALED</div>
           </div>
-          <div class="hub-room-card hub-room-sealed">
+          <div class="hub-room-card" id="hub-substance-card">
             <div class="hub-room-sigil">⚗</div>
             <div class="hub-room-name">SUBSTANCE LAB</div>
             <div class="hub-room-tagline">Craft equipment, items, and inanimate content.</div>
-            <div class="hub-room-sealed-label">SEALED</div>
           </div>
           <div class="hub-room-card hub-room-sealed">
             <div class="hub-room-sigil">◇</div>
@@ -244,12 +241,69 @@
     </div>
   </div>
 
+  <!-- Inventory panel: toggle with I key. Shows equipped items + bag grid. -->
+  <div id="inventory-panel" data-open="false">
+    <div class="inventory-frame">
+      <div class="inventory-header">
+        <span class="inventory-title">// INVENTORY</span>
+        <span class="inventory-stats-display" id="inv-stats-display">ATK 10 | DEF 5</span>
+        <button class="inventory-close-btn" id="inventory-close-btn">✕ CLOSE</button>
+      </div>
+      <div class="inventory-body">
+        <div class="equipment-panel">
+          <div class="equipment-panel-label">// EQUIPPED</div>
+          <div class="equipment-slots" id="equipment-slots"></div>
+        </div>
+        <div class="inventory-grid-panel">
+          <div class="inventory-grid-label">// BAG</div>
+          <div class="inventory-grid" id="inventory-grid"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hit flash: red overlay on taking damage. -->
+  <div id="hit-flash" aria-hidden="true"></div>
+
+  <!-- Level-up notification: centred fade-in/out. -->
+  <div id="levelup-notification" data-visible="false">
+    <div class="levelup-title">LEVEL UP</div>
+    <div class="levelup-sub" id="levelup-sub"></div>
+  </div>
+
+  <!-- Pickup prompt: shown when near a world item. -->
+  <div id="pickup-prompt" data-visible="false">
+    <kbd>[F]</kbd> PICK UP <span id="pickup-item-name">ITEM</span>
+  </div>
+
   <!-- CRT-ish overlay: scanlines + vignette + grain, pure CSS. -->
   <div id="crt-overlay" aria-hidden="true"></div>
 
   <!-- Crosshair: only visible when pointer is locked. -->
   <div id="crosshair" data-visible="false">
     <span></span><span></span>
+  </div>
+
+  <!-- Stats HUD: HP, XP, level — bottom-left, above the bezel. -->
+  <div id="stats-hud" data-visible="false">
+    <div class="stats-level-row">
+      <div class="stats-label">LVL</div>
+      <div class="stats-level-val" id="hud-level">1</div>
+    </div>
+    <div class="stats-bar-row">
+      <div class="stats-label">HP</div>
+      <div class="stats-bar-track">
+        <div class="stats-bar-fill stats-hp-fill" id="hud-hp-fill"></div>
+      </div>
+      <div class="stats-bar-val" id="hud-hp-val">100/100</div>
+    </div>
+    <div class="stats-bar-row">
+      <div class="stats-label">XP</div>
+      <div class="stats-bar-track">
+        <div class="stats-bar-fill stats-xp-fill" id="hud-xp-fill" style="width:0%"></div>
+      </div>
+      <div class="stats-bar-val" id="hud-xp-val">0/100</div>
+    </div>
   </div>
 
   <!-- HUD frame: bottom bezel + side rails. -->
@@ -298,6 +352,7 @@
         <div class="terminal-instructions">
           <p>CLICK VIEWPORT to lock controls. <kbd>WASD</kbd> move, <kbd>MOUSE</kbd> look.</p>
           <p><kbd>ESC</kbd> or <kbd>TAB</kbd> returns to this terminal.</p>
+          <p><kbd>Q</kbd> melee attack · <kbd>F</kbd> pick up item · <kbd>I</kbd> inventory</p>
           <p class="muted">Enter a description below. The forge will render a sprite and stage it in the room. Render takes minutes — a placeholder appears while it works.</p>
         </div>
         <div class="terminal-prompt-row">
@@ -355,6 +410,177 @@
         </div>
       </div>
 
+    </div>
+  </div>
+
+  <!-- Arcanum panel: character progression config -->
+  <div id="arcanum-panel" data-open="false">
+    <div class="hub-sub-frame">
+      <div class="hub-sub-header">
+        <span class="hub-sub-title">// ARCANUM</span>
+        <button class="hub-sub-close-btn" id="arcanum-close-btn">✕ CLOSE</button>
+      </div>
+      <div class="hub-sub-body">
+
+        <div class="hub-sub-section">
+          <div class="hub-sub-section-label">// character</div>
+          <div class="arcanum-sheet" id="arcanum-sheet">—</div>
+        </div>
+
+        <div class="hub-sub-section">
+          <div class="hub-sub-section-label">// progression</div>
+          <div class="hub-sub-grid-2">
+            <div class="hub-sub-field">
+              <label class="hub-sub-label">XP multiplier</label>
+              <input id="arc-xp-mult" type="number" min="0.1" max="10" step="0.1" class="hub-sub-input" />
+            </div>
+            <div class="hub-sub-field">
+              <label class="hub-sub-label">HP per level-up</label>
+              <input id="arc-hp-gain" type="number" min="0" max="200" step="1" class="hub-sub-input" />
+            </div>
+            <div class="hub-sub-field">
+              <label class="hub-sub-label">ATK per level-up</label>
+              <input id="arc-atk-gain" type="number" min="0" max="50" step="1" class="hub-sub-input" />
+            </div>
+            <div class="hub-sub-field">
+              <label class="hub-sub-label">DEF per level-up</label>
+              <input id="arc-def-gain" type="number" min="0" max="50" step="1" class="hub-sub-input" />
+            </div>
+          </div>
+          <div class="hub-sub-footer">
+            <div id="arc-status" class="hub-sub-status" data-state="idle"></div>
+            <button id="arc-save-btn" class="hub-sub-save-btn">INSCRIBE</button>
+          </div>
+        </div>
+
+        <div class="hub-sub-section">
+          <div class="hub-sub-section-label">// ability slots <span class="muted" style="font-size:0.7em">(coming soon)</span></div>
+          <div class="arcanum-ability-slots">
+            <div class="arcanum-ability-slot"><span class="slot-num">I</span><span class="muted">— unbound</span></div>
+            <div class="arcanum-ability-slot"><span class="slot-num">II</span><span class="muted">— unbound</span></div>
+            <div class="arcanum-ability-slot"><span class="slot-num">III</span><span class="muted">— unbound</span></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Machinarium panel: combat rules and world conditions -->
+  <div id="machinarium-panel" data-open="false">
+    <div class="hub-sub-frame">
+      <div class="hub-sub-header">
+        <span class="hub-sub-title">// MACHINARIUM</span>
+        <button class="hub-sub-close-btn" id="machinarium-close-btn">✕ CLOSE</button>
+      </div>
+      <div class="hub-sub-body">
+
+        <div class="hub-sub-section">
+          <div class="hub-sub-section-label">// combat</div>
+          <div class="hub-sub-grid-2">
+            <div class="hub-sub-field">
+              <label class="hub-sub-label">Agro range</label>
+              <input id="mac-agro-range" type="number" min="1" max="20" step="0.5" class="hub-sub-input" />
+            </div>
+            <div class="hub-sub-field">
+              <label class="hub-sub-label">Attack range</label>
+              <input id="mac-attack-range" type="number" min="0.5" max="10" step="0.1" class="hub-sub-input" />
+            </div>
+            <div class="hub-sub-field">
+              <label class="hub-sub-label">Melee range (player)</label>
+              <input id="mac-melee-range" type="number" min="0.5" max="10" step="0.1" class="hub-sub-input" />
+            </div>
+            <div class="hub-sub-field">
+              <label class="hub-sub-label">Entity attack CD (s)</label>
+              <input id="mac-entity-cd" type="number" min="0.1" max="20" step="0.1" class="hub-sub-input" />
+            </div>
+            <div class="hub-sub-field">
+              <label class="hub-sub-label">Player attack CD (s)</label>
+              <input id="mac-player-cd" type="number" min="0.05" max="5" step="0.05" class="hub-sub-input" />
+            </div>
+          </div>
+        </div>
+
+        <div class="hub-sub-section">
+          <div class="hub-sub-section-label">// entity spawning</div>
+          <div class="hub-sub-grid-2">
+            <div class="hub-sub-field">
+              <label class="hub-sub-label">Level min</label>
+              <input id="mac-level-min" type="number" min="1" max="20" step="1" class="hub-sub-input" />
+            </div>
+            <div class="hub-sub-field">
+              <label class="hub-sub-label">Level max</label>
+              <input id="mac-level-max" type="number" min="1" max="20" step="1" class="hub-sub-input" />
+            </div>
+            <div class="hub-sub-field">
+              <label class="hub-sub-label">Drop chance (%)</label>
+              <input id="mac-drop-chance" type="number" min="0" max="100" step="1" class="hub-sub-input" />
+            </div>
+          </div>
+        </div>
+
+        <div class="hub-sub-footer">
+          <div id="mac-status" class="hub-sub-status" data-state="idle"></div>
+          <button id="mac-save-btn" class="hub-sub-save-btn">INSCRIBE</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Substance Lab panel: drop pool editor + item forge -->
+  <div id="substance-panel" data-open="false">
+    <div class="hub-sub-frame hub-sub-frame-wide">
+      <div class="hub-sub-header">
+        <span class="hub-sub-title">// SUBSTANCE LABORATORY</span>
+        <button class="hub-sub-close-btn" id="substance-close-btn">✕ CLOSE</button>
+      </div>
+      <div class="hub-sub-body">
+
+        <div class="hub-sub-section">
+          <div class="hub-sub-section-label">// drop pool <span class="muted" style="font-size:0.7em">— items entities may drop on death</span></div>
+          <div id="substance-drop-pool" class="substance-drop-pool"></div>
+          <div class="substance-add-row">
+            <select id="sub-new-type" class="hub-sub-select">
+              <option value="weapon">weapon</option>
+              <option value="armor">armor</option>
+              <option value="consumable">consumable</option>
+              <option value="accessory">accessory</option>
+            </select>
+            <input id="sub-new-name"    type="text"   class="hub-sub-input" placeholder="Item name" style="flex:2" />
+            <input id="sub-new-subtype" type="text"   class="hub-sub-input" placeholder="subtype (melee/body/…)" style="flex:1.5" />
+            <select id="sub-new-stat-key" class="hub-sub-select">
+              <option value="attack">attack</option>
+              <option value="defense">defense</option>
+              <option value="hp_restore">hp_restore</option>
+            </select>
+            <input id="sub-new-stat-val" type="number" class="hub-sub-input" placeholder="val" min="1" max="999" style="width:60px;flex:none" />
+            <select id="sub-new-rarity" class="hub-sub-select">
+              <option value="common">common</option>
+              <option value="uncommon">uncommon</option>
+              <option value="rare">rare</option>
+              <option value="legendary">legendary</option>
+            </select>
+            <button id="sub-add-btn" class="hub-sub-action-btn">+ ADD</button>
+          </div>
+          <div class="hub-sub-footer">
+            <div id="sub-pool-status" class="hub-sub-status" data-state="idle"></div>
+            <button id="sub-pool-save-btn" class="hub-sub-save-btn">SAVE POOL</button>
+          </div>
+        </div>
+
+        <div class="hub-sub-section">
+          <div class="hub-sub-section-label">// forge an item <span class="muted" style="font-size:0.7em">— generate item sprites via the pipeline</span></div>
+          <div class="substance-forge-row">
+            <span class="terminal-caret">&gt;</span>
+            <input id="sub-forge-input" type="text" class="hub-sub-input" spellcheck="false"
+                   placeholder="a chipped obsidian dagger with a leather-wrapped handle" style="flex:1" />
+            <button id="sub-forge-btn" class="hub-sub-action-btn">FORGE ITEM</button>
+          </div>
+          <div id="sub-forge-status" class="hub-sub-status" data-state="idle"></div>
+        </div>
+
+      </div>
     </div>
   </div>
 
