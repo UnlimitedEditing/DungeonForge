@@ -107,8 +107,8 @@
         <div class="hub-grid">
           <div class="hub-room-card" id="hub-forge-card">
             <div class="hub-room-sigil">⚒</div>
-            <div class="hub-room-name">THE FORGE</div>
-            <div class="hub-room-tagline">Begin an experience. Spawn entities into the world.</div>
+            <div class="hub-room-name">ENTER THE FORGE</div>
+            <div class="hub-room-tagline">Launch or edit an experience. Select your world and step inside.</div>
           </div>
           <div class="hub-room-card" id="hub-library-card">
             <div class="hub-room-sigil">✦</div>
@@ -136,11 +136,10 @@
             <div class="hub-room-name">SUBSTANCE LAB</div>
             <div class="hub-room-tagline">Craft equipment, items, and inanimate content.</div>
           </div>
-          <div class="hub-room-card hub-room-sealed">
+          <div class="hub-room-card" id="hub-terra-card">
             <div class="hub-room-sigil">◇</div>
             <div class="hub-room-name">TERRA FABRICATOR</div>
-            <div class="hub-room-tagline">Shape worlds, environments, and procedural generation.</div>
-            <div class="hub-room-sealed-label">SEALED</div>
+            <div class="hub-room-tagline">Shape levels, seeds, and procedural generation for the active experience.</div>
           </div>
           <div class="hub-room-card hub-room-sealed">
             <div class="hub-room-sigil">⊕</div>
@@ -151,6 +150,82 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- Experience picker: shown when player clicks "ENTER THE FORGE". -->
+  <div id="picker-panel" data-open="false">
+    <div class="picker-frame">
+      <div class="picker-header">
+        <span class="picker-title">// THE FORGE :: SELECT EXPERIENCE</span>
+        <button class="picker-close-btn" id="picker-close-btn">✕ CLOSE</button>
+      </div>
+      <div class="picker-body">
+        <div class="picker-list" id="picker-list">
+          <div class="picker-loading">scanning archives…</div>
+        </div>
+        <div class="picker-detail" id="picker-detail">
+          <div class="picker-detail-empty muted">Select an experience</div>
+        </div>
+      </div>
+      <div class="picker-footer">
+        <div class="picker-import-row">
+          <span class="terminal-caret">&gt;</span>
+          <input id="picker-import-input" type="text" spellcheck="false" placeholder="paste EXP: share code…" />
+          <button class="picker-action-btn" id="picker-import-btn">IMPORT</button>
+        </div>
+        <div id="picker-status" class="picker-status" data-state="idle"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Terra Fabricator / Level editor panel. -->
+  <div id="terra-panel" data-open="false">
+    <div class="terra-frame">
+      <div class="terra-header">
+        <span class="terra-title">// TERRA FABRICATOR</span>
+        <div class="terra-exp-label">
+          <span class="muted">experience:</span>
+          <span id="terra-exp-name">—</span>
+          <span id="terra-fork-badge" class="terra-fork-badge" style="display:none">FORK</span>
+        </div>
+        <button class="terra-close-btn" id="terra-close-btn">✕ CLOSE</button>
+      </div>
+      <div class="terra-body">
+        <div class="terra-controls">
+          <div class="terra-field-row">
+            <label class="terra-label">SEED</label>
+            <div class="setup-input-row">
+              <span class="terminal-caret">&gt;</span>
+              <input id="terra-seed" type="number" min="0" max="4294967295" spellcheck="false" placeholder="42" />
+            </div>
+          </div>
+          <div class="terra-field-row">
+            <label class="terra-label">ROOMS</label>
+            <input id="terra-rooms" type="range" min="6" max="40" value="18" />
+            <span id="terra-rooms-val" class="terra-range-val">18</span>
+          </div>
+          <div class="terra-field-row">
+            <label class="terra-label">GRID</label>
+            <input id="terra-grid" type="range" min="6" max="20" value="12" />
+            <span id="terra-grid-val" class="terra-range-val">12</span>
+          </div>
+          <div class="terra-btn-row">
+            <button class="terra-btn" id="terra-preview-btn">PREVIEW MAP</button>
+            <button class="terra-btn terra-btn-primary" id="terra-save-btn">SAVE TO EXPERIENCE</button>
+          </div>
+          <div id="terra-status" class="terra-status" data-state="idle"></div>
+        </div>
+        <div class="terra-map-wrap">
+          <canvas id="terra-canvas" width="420" height="420"></canvas>
+          <div class="terra-map-hint">level preview — seed determines layout</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Minimap: shown during gameplay. -->
+  <div id="minimap" data-visible="false">
+    <canvas id="minimap-canvas" width="160" height="160"></canvas>
   </div>
 
   <!-- Pose editor panel: accessible from the Entities panel. -->
