@@ -39,6 +39,70 @@ const ROAM_BOUND     = ROOM_SIZE / 2 - 1.8;
 const WALK_STEP_DIST = 0.6;  // world units of movement per walk-cycle frame advance
 const SPRITE_WORLD_H = 2.2;  // world-space height used for all sprites
 
+// Combat
+const MELEE_RANGE            = 2.5;   // max melee attack distance
+const AGRO_RANGE             = 6.0;   // distance at which entity notices player
+const ATTACK_RANGE           = 1.8;   // distance at which entity can strike player
+const ENTITY_ATTACK_COOLDOWN = 2.5;   // seconds between entity attacks
+const PLAYER_ATTACK_COOLDOWN = 0.55;  // seconds between player attacks
+const PICKUP_RANGE           = 1.2;   // distance for item pickup
+
+// Item drop pool — used when entities die
+const DROP_POOL = [
+  { name: 'Health Potion',    type: 'consumable', subtype: '',       stats: { hp_restore: 30 }, rarity: 'common',   color: 0xdd3333 },
+  { name: 'Iron Sword',       type: 'weapon',     subtype: 'melee',  stats: { attack: 5 },       rarity: 'common',   color: 0x888899 },
+  { name: 'Wooden Shield',    type: 'armor',       subtype: 'offhand',stats: { defense: 3 },      rarity: 'common',   color: 0x885522 },
+  { name: 'Leather Vest',     type: 'armor',       subtype: 'body',   stats: { defense: 5 },      rarity: 'common',   color: 0x664422 },
+  { name: 'Ring of Swiftness',type: 'accessory',   subtype: '',       stats: { attack: 2, defense: 1 }, rarity: 'uncommon', color: 0xddaa00 },
+  { name: 'Hunter\'s Bow',    type: 'weapon',     subtype: 'ranged', stats: { attack: 4, range: 15 }, rarity: 'uncommon', color: 0x997733 },
+];
+const RARITY_PREFIXES = { 2: 'Fine', 3: 'Forged', 4: 'Enchanted', 5: 'Legendary' };
+
+const EQUIPMENT_SLOTS = ['weapon', 'offhand', 'helmet', 'body', 'boots', 'accessory'];
+
+// Mutable game constants — defaults match hardcoded values; overwritten from config on room entry
+let liveAgroRange      = AGRO_RANGE;
+let liveAttackRange    = ATTACK_RANGE;
+let liveMeleeRange     = MELEE_RANGE;
+let liveEntityAttackCd = ENTITY_ATTACK_COOLDOWN;
+let livePlayerAttackCd = PLAYER_ATTACK_COOLDOWN;
+let liveDropChance     = 0.30;
+let liveXpMult         = 1.0;
+let liveLevelHpGain    = 10;
+let liveLevelAtkGain   = 2;
+let liveLevelDefGain   = 1;
+let liveDropPool       = [...DROP_POOL];
+
+const TYPE_COLORS = { weapon: 0x888899, armor: 0x664422, consumable: 0xdd3333, accessory: 0xddaa00 };
+
+async function applyGameConfig() {
+  try {
+    const res = await fetch(`${FORGE_BASE}/config`);
+    if (!res.ok) return;
+    const cfg = await res.json();
+    liveAgroRange      = cfg.agro_range        ?? AGRO_RANGE;
+    liveAttackRange    = cfg.attack_range       ?? ATTACK_RANGE;
+    liveMeleeRange     = cfg.melee_range        ?? MELEE_RANGE;
+    liveEntityAttackCd = cfg.entity_attack_cd   ?? ENTITY_ATTACK_COOLDOWN;
+    livePlayerAttackCd = cfg.player_attack_cd   ?? PLAYER_ATTACK_COOLDOWN;
+    liveDropChance     = cfg.drop_chance        ?? 0.30;
+    liveXpMult         = cfg.xp_multiplier      ?? 1.0;
+    liveLevelHpGain    = cfg.level_hp_gain      ?? 10;
+    liveLevelAtkGain   = cfg.level_atk_gain     ?? 2;
+    liveLevelDefGain   = cfg.level_def_gain     ?? 1;
+    if (Array.isArray(cfg.drop_pool) && cfg.drop_pool.length > 0) {
+      liveDropPool = cfg.drop_pool.map(item => ({
+        name:    item.name,
+        type:    item.type,
+        subtype: item.subtype ?? '',
+        stats:   { [item.stat_key]: item.stat_val },
+        rarity:  item.rarity,
+        color:   TYPE_COLORS[item.type] ?? 0xddaa00,
+      }));
+    }
+  } catch (e) { console.warn('config apply failed', e); }
+}
+
 const SPAWN_RING = [
   [ 0, -4], [ 3, -3], [ 4,  0], [ 3,  3],
   [ 0,  4], [-3,  3], [-4,  0], [-3, -3],
@@ -76,12 +140,15 @@ function hideForgeHub() {
   forgeHubEl.dataset.active = 'false';
 }
 
-function enterRoom() {
+async function enterRoom() {
   appMode = 'room';
   hideForgeHub();
-  closeLorePanel();
+  closeLibraryPanel();
   terminal.dataset.open = 'true';
   crosshair.dataset.visible = 'false';
+  statsHudEl.dataset.visible = 'true';
+  updatePlayerHud();
+  await applyGameConfig();
 }
 
 function returnToForge() {
@@ -89,6 +156,7 @@ function returnToForge() {
   if (controls.isLocked) controls.unlock();
   terminal.dataset.open = 'false';
   crosshair.dataset.visible = 'false';
+  statsHudEl.dataset.visible = 'false';
   showForgeHub();
 }
 
@@ -114,6 +182,21 @@ const loginStatus   = document.getElementById('login-status');
 
 let profileId       = null;
 let profileUsername = null;
+
+// ─────────────────────────────────────────────
+// PLAYER STATE
+// ─────────────────────────────────────────────
+
+const player = {
+  hp: 100, maxHp: 100,
+  attack: 10, defense: 5,
+  level: 1, xp: 0, xpToNext: 100,
+  inventory: [],    // array of item objects
+  equipment: {},    // slot -> item object
+};
+
+let lastPlayerAttack = 0;
+let pendingPickup    = null;   // world-item drop the player is standing near
 
 setupTabBtns.forEach(btn => btn.addEventListener('click', () => {
   const t = btn.dataset.setupTab;
@@ -142,6 +225,7 @@ async function onSessionReady(p) {
   profileId = p.profile_id; profileUsername = p.username;
   localStorage.setItem('profile_id', p.profile_id);
   localStorage.setItem('profile_username', p.username);
+  await loadPlayerStats();
 }
 
 async function doRegister() {
@@ -216,6 +300,486 @@ async function initProfile() {
     } catch (_) {}
   }
   showSetup('register');
+}
+
+// ─────────────────────────────────────────────
+// PLAYER STATS PERSISTENCE
+// ─────────────────────────────────────────────
+
+async function loadPlayerStats() {
+  if (!profileId) return;
+  try {
+    const res = await fetch(`${FORGE_BASE}/profiles/${profileId}/stats`);
+    if (!res.ok) return;
+    const s = await res.json();
+    player.hp        = s.max_hp ?? 100;   // restore to full on session load
+    player.maxHp     = s.max_hp ?? 100;
+    player.attack    = s.attack ?? 10;
+    player.defense   = s.defense ?? 5;
+    player.level     = s.level ?? 1;
+    player.xp        = s.xp ?? 0;
+    player.xpToNext  = s.xp_to_next ?? 100;
+    player.inventory = s.inventory ?? [];
+    player.equipment = s.equipment ?? {};
+  } catch (_) {}
+}
+
+async function savePlayerStats() {
+  if (!profileId) return;
+  try {
+    await fetch(`${FORGE_BASE}/profiles/${profileId}/stats`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        level: player.level, xp: player.xp, xp_to_next: player.xpToNext,
+        max_hp: player.maxHp, attack: player.attack, defense: player.defense,
+        inventory: player.inventory, equipment: player.equipment,
+      }),
+    });
+  } catch (_) {}
+}
+
+// ─────────────────────────────────────────────
+// PLAYER HUD UPDATE
+// ─────────────────────────────────────────────
+
+const statsHudEl         = document.getElementById('stats-hud');
+const hudLevelEl         = document.getElementById('hud-level');
+const hudHpFillEl        = document.getElementById('hud-hp-fill');
+const hudHpValEl         = document.getElementById('hud-hp-val');
+const hudXpFillEl        = document.getElementById('hud-xp-fill');
+const hudXpValEl         = document.getElementById('hud-xp-val');
+const hitFlashEl         = document.getElementById('hit-flash');
+const levelupEl          = document.getElementById('levelup-notification');
+const levelupSubEl       = document.getElementById('levelup-sub');
+const pickupPromptEl     = document.getElementById('pickup-prompt');
+const pickupItemNameEl   = document.getElementById('pickup-item-name');
+
+function updatePlayerHud() {
+  hudLevelEl.textContent = player.level;
+  const hpPct = player.hp / player.maxHp;
+  hudHpFillEl.style.width      = `${(hpPct * 100).toFixed(1)}%`;
+  hudHpFillEl.style.background = hpPct > 0.5 ? '#22bb22' : hpPct > 0.25 ? '#cccc22' : '#cc2222';
+  hudHpValEl.textContent       = `${player.hp}/${player.maxHp}`;
+  const xpPct = player.xp / player.xpToNext;
+  hudXpFillEl.style.width = `${(xpPct * 100).toFixed(1)}%`;
+  hudXpValEl.textContent  = `${player.xp}/${player.xpToNext}`;
+}
+
+function flashHit() {
+  hitFlashEl.classList.add('active');
+  setTimeout(() => hitFlashEl.classList.remove('active'), 180);
+}
+
+// ─────────────────────────────────────────────
+// FLOATING DAMAGE NUMBERS
+// ─────────────────────────────────────────────
+
+function spawnDamageNumber(worldPos, amount, isPlayerHit) {
+  const v = worldPos.clone();
+  v.y = SPRITE_WORLD_H;
+  const projected = v.project(roomCamera);
+  if (projected.z > 1) return;  // behind camera
+  const x = (projected.x *  0.5 + 0.5) * window.innerWidth;
+  const y = (projected.y * -0.5 + 0.5) * window.innerHeight;
+  const el = document.createElement('div');
+  el.className = `damage-number ${isPlayerHit ? 'player-hit' : 'enemy-hit'}`;
+  el.textContent = `-${amount}`;
+  el.style.left = `${x - 16}px`;
+  el.style.top  = `${y - 24}px`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 900);
+}
+
+// ─────────────────────────────────────────────
+// ENTITY HP BARS  (Three.js planes above sprites)
+// ─────────────────────────────────────────────
+
+const HP_BAR_W = 0.85;
+const HP_BAR_H = 0.07;
+
+function createEntityHpBar() {
+  const bgMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(HP_BAR_W, HP_BAR_H),
+    new THREE.MeshBasicMaterial({ color: 0x111111, depthTest: false, depthWrite: false }),
+  );
+  const fgMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(HP_BAR_W, HP_BAR_H),
+    new THREE.MeshBasicMaterial({ color: 0x22bb22, depthTest: false, depthWrite: false }),
+  );
+  fgMesh.position.z = 0.001;
+  bgMesh.renderOrder = fgMesh.renderOrder = 999;
+  const group = new THREE.Group();
+  group.add(bgMesh, fgMesh);
+  group.userData.fg = fgMesh;
+  roomScene.add(group);
+  return group;
+}
+
+function refreshEntityHpBar(entry) {
+  if (!entry.hpBar || !entry.stats) return;
+  const pct = Math.max(0, entry.stats.hp / entry.stats.maxHp);
+  const fg  = entry.hpBar.userData.fg;
+  fg.scale.x         = pct;
+  fg.position.x      = HP_BAR_W * (pct - 1) / 2;
+  fg.material.color.setHex(pct > 0.5 ? 0x22bb22 : pct > 0.25 ? 0xcccc00 : 0xcc2222);
+}
+
+function updateHpBarTransforms() {
+  for (const e of sprites.values()) {
+    if (!e.hpBar || !e.mesh || e.aiState === 'dead') continue;
+    const p = e.mesh.position;
+    e.hpBar.position.set(p.x, SPRITE_WORLD_H + 0.28, p.z);
+    e.hpBar.quaternion.copy(roomCamera.quaternion);
+  }
+}
+
+// ─────────────────────────────────────────────
+// COMBAT
+// ─────────────────────────────────────────────
+
+function getEquipBonus(stat) {
+  let total = 0;
+  for (const item of Object.values(player.equipment)) {
+    total += (item?.stats?.[stat] ?? 0);
+  }
+  return total;
+}
+
+function meleeAttack() {
+  if (!controls.isLocked || appMode !== 'room') return;
+  const now = performance.now() / 1000;
+  if (now - lastPlayerAttack < livePlayerAttackCd) return;
+  lastPlayerAttack = now;
+
+  const playerPos = roomCamera.position;
+  let nearest = null, nearestDist = liveMeleeRange;
+
+  for (const e of sprites.values()) {
+    if (e.status !== 'done' || !e.mesh || e.mesh.userData.isPlaceholder) continue;
+    if (e.aiState === 'dead' || !e.stats) continue;
+    const d = playerPos.distanceTo(e.mesh.position);
+    if (d < nearestDist) { nearest = e; nearestDist = d; }
+  }
+
+  if (!nearest) return;
+
+  const atk  = player.attack + getEquipBonus('attack');
+  const dmg  = Math.max(1, atk - nearest.stats.defense + Math.floor(Math.random() * 7 - 3));
+  nearest.stats.hp = Math.max(0, nearest.stats.hp - dmg);
+  spawnDamageNumber(nearest.mesh.position, dmg, false);
+  refreshEntityHpBar(nearest);
+  if (nearest.stats.hp <= 0) killEntity(nearest);
+}
+
+function killEntity(entry) {
+  entry.aiState = 'dead';
+  entry.roam    = null;
+
+  // Lay flat on the floor
+  entry.mesh.rotation.set(-Math.PI / 2, 0, 0);
+  entry.mesh.position.y = 0.02;
+
+  // Swap to corpse sprite if available; otherwise tint red
+  const corpseVar = entry.variants?.corpse;
+  if (corpseVar?.status === 'done' && corpseVar.spriteName) {
+    textureLoader.load(`${FORGE_BASE}/sprites/${corpseVar.spriteName}`, (tex) => {
+      tex.magFilter  = THREE.NearestFilter;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      entry.mesh.material = new THREE.MeshStandardMaterial({
+        map: tex, transparent: true, alphaTest: 0.15,
+        roughness: 1, metalness: 0, side: THREE.DoubleSide,
+      });
+    });
+  } else if (entry.mesh.material) {
+    entry.mesh.material.color.set(0x661111);
+    entry.mesh.material.opacity = 0.7;
+  }
+
+  // Remove HP bar and shadow
+  if (entry.hpBar)    { roomScene.remove(entry.hpBar);    entry.hpBar    = null; }
+  if (entry.shadowBlob) { roomScene.remove(entry.shadowBlob); entry.shadowBlob = null; }
+
+  gainXp(entry.stats?.xpReward ?? 0);
+
+  // configurable drop chance
+  if (entry.mesh && Math.random() < liveDropChance) {
+    const pos = entry.mesh.position.clone();
+    pos.y = 0;
+    spawnItemDrop(pos, entry.stats?.level ?? 1);
+  }
+}
+
+function onPlayerDeath() {
+  player.hp = 1;  // survive at 1 HP for now; full death screen is future work
+  updatePlayerHud();
+  // Simple feedback — flash stays red longer
+  hitFlashEl.classList.add('active');
+  setTimeout(() => hitFlashEl.classList.remove('active'), 600);
+}
+
+// ─────────────────────────────────────────────
+// XP + LEVELLING
+// ─────────────────────────────────────────────
+
+function gainXp(amount) {
+  if (amount <= 0) return;
+  const gained = Math.round(amount * liveXpMult);
+  player.xp += gained;
+  while (player.xp >= player.xpToNext) {
+    player.xp -= player.xpToNext;
+    levelUp();
+  }
+  updatePlayerHud();
+  savePlayerStats();
+}
+
+function levelUp() {
+  const prev = player.level;
+  player.level++;
+  player.xpToNext  = player.level * 100;
+  player.maxHp    += liveLevelHpGain;
+  player.hp        = Math.min(player.hp + 15, player.maxHp);
+  player.attack   += liveLevelAtkGain;
+  player.defense  += liveLevelDefGain;
+  showLevelUpNotification(prev, player.level);
+  updatePlayerHud();
+}
+
+function showLevelUpNotification(from, to) {
+  levelupSubEl.textContent = `${from} → ${to}  |  +${liveLevelHpGain} HP  +${liveLevelAtkGain} ATK  +${liveLevelDefGain} DEF`;
+  levelupEl.dataset.visible = 'true';
+  setTimeout(() => { levelupEl.dataset.visible = 'false'; }, 2800);
+}
+
+// ─────────────────────────────────────────────
+// WORLD ITEM DROPS
+// ─────────────────────────────────────────────
+
+const worldItems = new Map();   // id -> { mesh, glow, item }
+
+function spawnItemDrop(position, entityLevel) {
+  const pool  = liveDropPool.length > 0 ? liveDropPool : DROP_POOL;
+  const tpl   = pool[Math.floor(Math.random() * pool.length)];
+  const scale = 1 + (entityLevel - 1) * 0.35;
+  const prefix = RARITY_PREFIXES[Math.min(entityLevel, 5)] ?? '';
+  const item = {
+    id:      Math.random().toString(36).slice(2, 10),
+    name:    prefix ? `${prefix} ${tpl.name}` : tpl.name,
+    type:    tpl.type,
+    subtype: tpl.subtype,
+    rarity:  entityLevel >= 4 ? 'rare' : entityLevel >= 2 ? 'uncommon' : 'common',
+    stats:   Object.fromEntries(
+               Object.entries(tpl.stats).map(([k, v]) => [k, Math.floor(v * scale)])
+             ),
+    color:   tpl.color,
+  };
+
+  const geo  = new THREE.OctahedronGeometry(0.18, 0);
+  const mat  = new THREE.MeshBasicMaterial({ color: item.color });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(position.x, 0.22, position.z);
+
+  const glow = new THREE.PointLight(item.color, 0.7, 1.8, 2.0);
+  glow.position.copy(mesh.position);
+
+  roomScene.add(mesh, glow);
+  worldItems.set(item.id, { mesh, glow, item, spawnT: performance.now() / 1000 });
+}
+
+function updateWorldItems(t) {
+  const playerPos = roomCamera.position;
+  pendingPickup   = null;
+  let nearestDist = PICKUP_RANGE;
+
+  for (const [id, drop] of worldItems) {
+    // Bob + spin
+    drop.mesh.position.y = 0.22 + Math.sin(t * 2.4 + drop.spawnT) * 0.07;
+    drop.mesh.rotation.y += 0.018;
+    drop.glow.position.copy(drop.mesh.position);
+
+    if (!controls.isLocked) continue;
+    const d = playerPos.distanceTo(drop.mesh.position);
+    if (d < nearestDist) { pendingPickup = drop; nearestDist = d; }
+  }
+
+  if (pendingPickup && appMode === 'room') {
+    pickupPromptEl.dataset.visible = 'true';
+    pickupItemNameEl.textContent   = pendingPickup.item.name.toUpperCase();
+  } else {
+    pickupPromptEl.dataset.visible = 'false';
+  }
+}
+
+function pickupItem() {
+  if (!pendingPickup) return;
+  const { item, mesh, glow, id: dropId } = pendingPickup;
+
+  // Find the id stored in the Map key
+  let mapKey = null;
+  for (const [k, v] of worldItems) { if (v === pendingPickup) { mapKey = k; break; } }
+  if (!mapKey) return;
+
+  roomScene.remove(mesh, glow);
+  worldItems.delete(mapKey);
+  pendingPickup = null;
+  pickupPromptEl.dataset.visible = 'false';
+
+  player.inventory.push(item);
+  savePlayerStats();
+
+  // Brief pick-up flash in the HUD
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;left:50%;bottom:130px;transform:translateX(-50%);z-index:36;font-family:"Press Start 2P",monospace;font-size:8px;color:var(--ok);pointer-events:none;animation:damage-float 1.2s ease-out forwards;white-space:nowrap;';
+  el.textContent = `PICKED UP: ${item.name.toUpperCase()}`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1300);
+}
+
+// ─────────────────────────────────────────────
+// INVENTORY PANEL
+// ─────────────────────────────────────────────
+
+const inventoryPanelEl = document.getElementById('inventory-panel');
+const invStatsDisplay  = document.getElementById('inv-stats-display');
+const equipmentSlotsEl = document.getElementById('equipment-slots');
+const inventoryGridEl  = document.getElementById('inventory-grid');
+
+document.getElementById('inventory-close-btn').addEventListener('click', closeInventory);
+
+function openInventory() {
+  inventoryPanelEl.dataset.open = 'true';
+  if (controls.isLocked) controls.unlock();
+  renderInventory();
+}
+
+function closeInventory() {
+  inventoryPanelEl.dataset.open = 'false';
+}
+
+function renderInventory() {
+  const totalAtk = player.attack + getEquipBonus('attack');
+  const totalDef = player.defense + getEquipBonus('defense');
+  invStatsDisplay.textContent = `LVL ${player.level}  |  ATK ${totalAtk}  |  DEF ${totalDef}  |  HP ${player.hp}/${player.maxHp}`;
+
+  // Equipment slots
+  equipmentSlotsEl.innerHTML = '';
+  for (const slot of EQUIPMENT_SLOTS) {
+    const item = player.equipment[slot];
+    const el   = document.createElement('div');
+    el.className = `equipment-slot${item ? ' equipment-slot-filled' : ''}`;
+    el.dataset.slot = slot;
+
+    const labelDiv = document.createElement('div');
+    labelDiv.className = 'slot-label';
+    labelDiv.textContent = slot.toUpperCase();
+    el.appendChild(labelDiv);
+
+    if (item) {
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'slot-item';
+      nameDiv.textContent = item.name;
+      el.appendChild(nameDiv);
+      const statsDiv = document.createElement('div');
+      statsDiv.className = 'slot-item-stats';
+      statsDiv.textContent = formatItemStats(item.stats);
+      el.appendChild(statsDiv);
+      el.title = `Click to unequip ${item.name}`;
+      el.addEventListener('click', () => unequipItem(slot));
+    } else {
+      const emptyDiv = document.createElement('div');
+      emptyDiv.className = 'slot-empty';
+      emptyDiv.textContent = '—';
+      el.appendChild(emptyDiv);
+    }
+    equipmentSlotsEl.appendChild(el);
+  }
+
+  // Bag grid (24 slots)
+  inventoryGridEl.innerHTML = '';
+  for (let i = 0; i < 24; i++) {
+    const item = player.inventory[i];
+    const cell = document.createElement('div');
+    cell.className = `inv-cell${item ? ' inv-cell-filled' : ''}`;
+
+    if (item) {
+      const rarityClass = `rarity-${item.rarity ?? 'common'}`;
+      cell.innerHTML = `
+        <div class="inv-item-rarity ${rarityClass}">${rarityGlyph(item.rarity)}</div>
+        <div class="inv-item-name">${escapeHtml(item.name)}</div>
+        <div class="inv-item-type">${item.type}</div>`;
+      cell.title = `${item.name}\n${formatItemStats(item.stats)}\nClick to equip/use`;
+      cell.addEventListener('click', () => onItemClick(i));
+    }
+    inventoryGridEl.appendChild(cell);
+  }
+}
+
+function rarityGlyph(rarity) {
+  return { common: '◌', uncommon: '◆', rare: '✦', legendary: '★' }[rarity] ?? '◌';
+}
+
+function formatItemStats(stats) {
+  if (!stats) return '';
+  return Object.entries(stats)
+    .filter(([, v]) => v > 0)
+    .map(([k, v]) => `${k.replace('_', ' ')} +${v}`)
+    .join('  ');
+}
+
+function onItemClick(index) {
+  const item = player.inventory[index];
+  if (!item) return;
+
+  if (item.type === 'consumable') {
+    useConsumable(index);
+  } else if (['weapon','armor','accessory'].includes(item.type)) {
+    equipFromBag(index);
+  }
+}
+
+function equipFromBag(index) {
+  const item = player.inventory[index];
+  if (!item) return;
+
+  // Determine slot
+  const slot = item.subtype || item.type;
+  const validSlots = EQUIPMENT_SLOTS;
+  const targetSlot = validSlots.includes(slot) ? slot : item.type === 'weapon' ? 'weapon' : item.type;
+
+  if (!EQUIPMENT_SLOTS.includes(targetSlot)) return;
+
+  // Swap current equipped back to bag
+  const current = player.equipment[targetSlot];
+  player.inventory.splice(index, 1);
+  if (current) player.inventory.push(current);
+
+  player.equipment[targetSlot] = item;
+  savePlayerStats();
+  renderInventory();
+  updatePlayerHud();
+}
+
+function unequipItem(slot) {
+  const item = player.equipment[slot];
+  if (!item) return;
+  if (player.inventory.length >= 24) return;  // bag full
+  delete player.equipment[slot];
+  player.inventory.push(item);
+  savePlayerStats();
+  renderInventory();
+  updatePlayerHud();
+}
+
+function useConsumable(index) {
+  const item = player.inventory[index];
+  if (!item) return;
+  if (item.stats?.hp_restore) {
+    player.hp = Math.min(player.maxHp, player.hp + item.stats.hp_restore);
+  }
+  player.inventory.splice(index, 1);
+  savePlayerStats();
+  updatePlayerHud();
+  renderInventory();
 }
 
 // ─────────────────────────────────────────────
@@ -413,33 +977,28 @@ function updateForge(dt, t) {
 // FORGE HUB UI
 // ─────────────────────────────────────────────
 
-document.getElementById('forge-enter-btn').addEventListener('click', enterRoom);
+document.getElementById('hub-forge-card').addEventListener('click', enterRoom);
+document.getElementById('hub-library-card').addEventListener('click', openLibraryPanel);
+document.getElementById('hub-machinarium-card').addEventListener('click', openMachinariumPanel);
+document.getElementById('hub-arcanum-card').addEventListener('click', openArcanumPanel);
+document.getElementById('hub-substance-card').addEventListener('click', openSubstancePanel);
 
-// Config button — opens the config tab in the terminal
-document.getElementById('forge-config-btn').addEventListener('click', () => {
-  enterRoom();
-  // Switch terminal to config tab after a tick so the panel is visible
-  setTimeout(() => {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === 'config'));
-    document.querySelectorAll('.tab-panel').forEach(p => p.style.display = p.dataset.panel === 'config' ? '' : 'none');
-    loadConfig();
-  }, 50);
-});
+// ─────────────────────────────────────────────
+// LIBRARY PANEL
+// ─────────────────────────────────────────────
 
-// Lore book
-const lorePanelEl    = document.getElementById('lore-panel');
+const libraryPanelEl = document.getElementById('library-panel');
 const loreTextarea   = document.getElementById('lore-textarea');
 const loreStatus     = document.getElementById('lore-status');
 const loreSaveBtn    = document.getElementById('lore-save-btn');
-const loreCloseBtn   = document.getElementById('lore-close-btn');
 
-function openLorePanel() {
-  lorePanelEl.dataset.open = 'true';
+function openLibraryPanel() {
+  libraryPanelEl.dataset.open = 'true';
   loadLore();
   loreTextarea.focus();
 }
-function closeLorePanel() {
-  lorePanelEl.dataset.open = 'false';
+function closeLibraryPanel() {
+  libraryPanelEl.dataset.open = 'false';
 }
 
 async function loadLore() {
@@ -453,7 +1012,6 @@ async function saveLore() {
   loreSaveBtn.disabled = true;
   setStatus(loreStatus, 'saving', 'inscribing…');
   try {
-    // Fetch current config so we only change the lore field
     const cfgRes = await fetch(`${FORGE_BASE}/config`);
     if (!cfgRes.ok) throw new Error('could not fetch config');
     const cfg = await cfgRes.json();
@@ -470,19 +1028,21 @@ async function saveLore() {
   } finally { loreSaveBtn.disabled = false; }
 }
 
-document.getElementById('forge-lore-btn').addEventListener('click', openLorePanel);
-loreCloseBtn.addEventListener('click', closeLorePanel);
+document.getElementById('library-close-btn').addEventListener('click', closeLibraryPanel);
 loreSaveBtn.addEventListener('click', saveLore);
+document.getElementById('library-entities-btn').addEventListener('click', () => {
+  closeLibraryPanel();
+  openEntities();
+});
 
 // ─────────────────────────────────────────────
-// BESTIARY
+// ENTITIES
 // ─────────────────────────────────────────────
 
 const VARIANT_TYPES = ['corpse', 'damage', 'back'];
 
-const bestiaryPanelEl  = document.getElementById('bestiary-panel');
-const bestiaryBody     = document.getElementById('bestiary-body');
-const bestiaryCloseBtn = document.getElementById('bestiary-close-btn');
+const entitiesPanelEl  = document.getElementById('entities-panel');
+const entitiesBody     = document.getElementById('entities-body');
 
 async function loadJobHistory() {
   try {
@@ -520,56 +1080,63 @@ async function loadJobHistory() {
   } catch (e) { console.warn('history load failed', e); }
 }
 
-async function openBestiary() {
-  bestiaryPanelEl.dataset.open = 'true';
+async function openEntities() {
+  entitiesPanelEl.dataset.open = 'true';
   await loadJobHistory();
-  renderBestiary();
+  renderEntities();
 }
-function closeBestiary() { bestiaryPanelEl.dataset.open = 'false'; }
+function closeEntities() { entitiesPanelEl.dataset.open = 'false'; }
 
-bestiaryCloseBtn.addEventListener('click', closeBestiary);
-document.getElementById('forge-bestiary-btn').addEventListener('click', openBestiary);
+document.getElementById('entities-close-btn').addEventListener('click', closeEntities);
+document.getElementById('entities-back-btn').addEventListener('click', () => {
+  closeEntities();
+  openLibraryPanel();
+});
+document.getElementById('entities-pose-btn').addEventListener('click', () => {
+  closeEntities();
+  openPoseEditor();
+});
 
-function renderBestiary() {
+function renderEntities() {
   const entries = [...sprites.values()].filter(e => e.status === 'done');
   if (!entries.length) {
-    bestiaryBody.innerHTML = '<p class="muted bestiary-empty">No creatures forged yet. Spawn something in the room.</p>';
+    entitiesBody.innerHTML = '<p class="muted entities-empty">No entities forged yet. Spawn something in the room.</p>';
     return;
   }
-  bestiaryBody.innerHTML = '';
+  entitiesBody.innerHTML = '';
   for (const e of entries) {
     const card = document.createElement('div');
-    card.className = 'beast-card';
+    card.className = 'entity-card';
     card.dataset.jobId = e.jobId;
 
     // Thumbnail
     const thumbWrap = document.createElement('div');
     if (e.spriteSrc) {
       const img = document.createElement('img');
-      img.className = 'beast-thumb'; img.src = e.spriteSrc; img.alt = e.prompt;
+      img.className = 'entity-thumb'; img.src = e.spriteSrc; img.alt = e.prompt;
       thumbWrap.appendChild(img);
     } else {
       const ph = document.createElement('div');
-      ph.className = 'beast-thumb-placeholder'; ph.textContent = '?';
+      ph.className = 'entity-thumb-placeholder'; ph.textContent = '?';
       thumbWrap.appendChild(ph);
     }
     card.appendChild(thumbWrap);
 
     // Info column
     const info = document.createElement('div');
-    info.className = 'beast-info';
+    info.className = 'entity-info';
 
     const promptEl = document.createElement('div');
-    promptEl.className = 'beast-prompt'; promptEl.textContent = e.prompt;
+    promptEl.className = 'entity-prompt'; promptEl.textContent = e.prompt;
     info.appendChild(promptEl);
 
-    // Variant badges — click to view sprite in new tab
+    // Variant badges
     const badges = document.createElement('div');
-    badges.className = 'beast-variants';
+    badges.className = 'entity-variants';
     for (const vt of VARIANT_TYPES) {
       const vj = e.variants?.[vt];
       const badge = document.createElement('button');
-      badge.className = 'beast-variant-badge';
+      badge.className = 'entity-variant-badge';
       badge.textContent = vt.toUpperCase();
       badge.dataset.state = vj ? vj.status : 'none';
       if (vj?.status === 'done' && vj.spriteName) {
@@ -584,9 +1151,9 @@ function renderBestiary() {
 
     // Regen row
     const regenRow = document.createElement('div');
-    regenRow.className = 'beast-regen-row';
+    regenRow.className = 'entity-regen-row';
     const regenInput = document.createElement('input');
-    regenInput.className = 'beast-regen-input'; regenInput.type = 'text';
+    regenInput.className = 'entity-regen-input'; regenInput.type = 'text';
     regenInput.placeholder = 'regen prompt override (leave blank to use template)…';
     const regenSelect = document.createElement('select');
     regenSelect.style.cssText = 'background:var(--bg-deep);color:var(--amber);border:1px solid var(--rust);padding:3px 6px;font-family:VT323,monospace;font-size:18px;outline:none;';
@@ -595,7 +1162,7 @@ function renderBestiary() {
       regenSelect.appendChild(opt);
     });
     const regenBtn = document.createElement('button');
-    regenBtn.className = 'beast-regen-btn'; regenBtn.textContent = 'REGEN';
+    regenBtn.className = 'entity-regen-btn'; regenBtn.textContent = 'REGEN';
     regenBtn.addEventListener('click', async () => {
       regenBtn.disabled = true;
       const vt = regenSelect.value;
@@ -611,7 +1178,7 @@ function renderBestiary() {
         e.variants[vt] = { jobId: vj.id, status: vj.status, spriteName: null };
         pollVariantJob(vj.id, vt, e);
         refreshJobList();
-        renderBestiary();
+        renderEntities();
       } catch (err) { console.error('regen failed', err); }
       finally { regenBtn.disabled = false; }
     });
@@ -619,7 +1186,7 @@ function renderBestiary() {
     info.appendChild(regenRow);
 
     card.appendChild(info);
-    bestiaryBody.appendChild(card);
+    entitiesBody.appendChild(card);
   }
 }
 
@@ -633,8 +1200,9 @@ function loadWalkSheet(spriteName, frameCount, variantType, entry) {
     tex.offset.set(0, 0);
 
     const frameAspect = (tex.image.width / frameCount) / tex.image.height;
-    const mat = new THREE.SpriteMaterial({
+    const mat = new THREE.MeshStandardMaterial({
       map: tex, transparent: true, alphaTest: 0.15, depthWrite: true,
+      roughness: 1, metalness: 0, side: THREE.DoubleSide,
     });
     const sheet = { mat, tex, frameCount, frameAspect };
 
@@ -657,7 +1225,7 @@ async function pollVariantJob(varJobId, variantType, entry) {
     entry.variants[variantType] = { jobId: varJobId, status: vj.status, spriteName: vj.sprite_name, frameCount: vj.frame_count ?? 1 };
 
     refreshJobList();
-    if (bestiaryPanelEl.dataset.open === 'true') renderBestiary();
+    if (entitiesPanelEl.dataset.open === 'true') renderEntities();
 
     if (vj.status === 'done' && vj.sprite_name) {
       const frameCount = vj.frame_count ?? 1;
@@ -681,12 +1249,16 @@ roomScene.fog = new THREE.Fog(0x000000, 6, 22);
 const roomCamera = new THREE.PerspectiveCamera(78, window.innerWidth / window.innerHeight, 0.05, 200);
 roomCamera.position.set(0, PLAYER_EYE, 6);
 
-roomScene.add(new THREE.AmbientLight(0x2a1e10, 0.35));
-const brazier = new THREE.PointLight(0xff8030, 1.2, 14, 1.6);
+roomScene.add(new THREE.AmbientLight(0x3a2818, 0.55));
+const brazier = new THREE.PointLight(0xff8030, 2.2, 18, 1.6);
 brazier.position.set(0, 2.5, 0);
 roomScene.add(brazier);
-const torch = new THREE.PointLight(0xffb060, 1.5, 10, 1.5);
+const torch = new THREE.PointLight(0xffb060, 2.2, 13, 1.5);
 roomScene.add(torch);
+// Dim corner fill so walls and far sprites are always readable
+const cornerFill = new THREE.PointLight(0xff6010, 0.5, 14, 2.0);
+cornerFill.position.set(-6, 2.0, -6);
+roomScene.add(cornerFill);
 
 const floorMat   = new THREE.MeshStandardMaterial({ color: 0x3a2820, roughness: 0.95, metalness: 0.0 });
 const ceilingMat = new THREE.MeshStandardMaterial({ color: 0x1a1208, roughness: 1 });
@@ -758,8 +1330,20 @@ window.addEventListener('keydown', (e) => {
     if (controls.isLocked) controls.unlock(); else controls.lock();
   }
   if (e.code === 'Escape' && appMode === 'room' && !controls.isLocked) {
-    // Second ESC when already unlocked → back to Forge
+    if (inventoryPanelEl.dataset.open === 'true') { closeInventory(); return; }
     returnToForge();
+  }
+  if (e.code === 'KeyQ' && appMode === 'room') {
+    e.preventDefault();
+    meleeAttack();
+  }
+  if (e.code === 'KeyF' && appMode === 'room' && controls.isLocked) {
+    e.preventDefault();
+    pickupItem();
+  }
+  if (e.code === 'KeyI' && appMode === 'room') {
+    e.preventDefault();
+    if (inventoryPanelEl.dataset.open === 'true') closeInventory(); else openInventory();
   }
 });
 
@@ -812,18 +1396,32 @@ function makePlaceholder(position) {
 
 function makeSprite(spriteName, position, onReady) {
   textureLoader.load(`${FORGE_BASE}/sprites/${spriteName}`, (tex) => {
-    tex.magFilter = THREE.NearestFilter;
-    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.magFilter  = THREE.NearestFilter;
+    tex.minFilter  = THREE.LinearMipmapLinearFilter;
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-    const mat    = new THREE.SpriteMaterial({ map: tex, transparent: true, alphaTest: 0.15, depthWrite: true });
-    const sprite = new THREE.Sprite(mat);
-    const h      = 2.2;
-    sprite.scale.set(h * (tex.image.width / tex.image.height), h, 1);
-    sprite.position.copy(position);
-    sprite.position.y = h / 2;
-    onReady(sprite, h / 2, tex, `${FORGE_BASE}/sprites/${spriteName}`);
+    const mat    = new THREE.MeshStandardMaterial({
+      map: tex, transparent: true, alphaTest: 0.15, depthWrite: true,
+      roughness: 1, metalness: 0, side: THREE.DoubleSide,
+    });
+    const h      = SPRITE_WORLD_H;
+    const aspect = tex.image.width / tex.image.height;
+    const mesh   = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+    mesh.scale.set(h * aspect, h, 1);
+    mesh.position.copy(position);
+    mesh.position.y = h / 2;
+    onReady(mesh, h / 2, tex, `${FORGE_BASE}/sprites/${spriteName}`);
   }, undefined, (err) => console.error('texture load failed', err));
+}
+
+function createShadowBlob() {
+  const geo  = new THREE.CircleGeometry(0.44, 12);
+  const mat  = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4, depthWrite: false });
+  const blob = new THREE.Mesh(geo, mat);
+  blob.rotation.x = -Math.PI / 2;
+  blob.position.y = 0.016;
+  roomScene.add(blob);
+  return blob;
 }
 
 async function spawnFromPrompt(promptText) {
@@ -859,6 +1457,19 @@ async function pollJob(jobId) {
     entry.status = job.status;
     refreshJobList();
     if (job.status === 'done') {
+      // Read combat stats from job (rolled server-side at creation time)
+      if (job.entity_stats) {
+        entry.stats = {
+          hp:        job.entity_stats.hp,
+          maxHp:     job.entity_stats.max_hp,
+          attack:    job.entity_stats.attack,
+          defense:   job.entity_stats.defense,
+          xpReward:  job.entity_stats.xp_reward,
+          level:     job.entity_stats.level,
+        };
+        entry.aiState       = 'roam';
+        entry.lastAttackTime = 0;
+      }
       makeSprite(job.sprite_name, entry.position, (sprite, floorY, tex, src) => {
         roomScene.remove(entry.mesh);
         entry.mesh.material?.dispose(); entry.mesh.geometry?.dispose();
@@ -868,8 +1479,13 @@ async function pollJob(jobId) {
         entry.roam    = initRoam();
         entry.frontTex    = tex;
         entry.frontAspect = tex.image.width / tex.image.height;
-        entry.frontMat    = sprite.material;   // reference kept for idle swap-back
+        entry.frontMat    = sprite.material;
         entry.spriteSrc   = src;
+        entry.shadowBlob  = createShadowBlob();
+        if (entry.stats) {
+          entry.hpBar = createEntityHpBar();
+          refreshEntityHpBar(entry);
+        }
       });
       if (job.variant_job_ids && Object.keys(job.variant_job_ids).length) {
         if (!entry.variants) entry.variants = {};
@@ -887,79 +1503,144 @@ async function pollJob(jobId) {
 }
 
 // ─────────────────────────────────────────────
-// ROAMING
+// ENTITY UPDATE  (roaming + AI + animation)
 // ─────────────────────────────────────────────
 
 function initRoam() {
   return { target: randomRoamTarget(), waitUntil: 0, speed: ROAM_SPEED_MIN + Math.random() * (ROAM_SPEED_MAX - ROAM_SPEED_MIN) };
 }
 
-function updateRoaming(dt) {
-  const now = performance.now() / 1000;
-  const _cameraFwd = new THREE.Vector3();
+function updateEntities(dt) {
+  const now       = performance.now() / 1000;
+  const playerPos = roomCamera.position;
+  const _camFwd   = new THREE.Vector3();
 
   for (const e of sprites.values()) {
-    if (e.status !== 'done' || !e.roam || !e.mesh) continue;
+    if (e.status !== 'done' || !e.mesh || e.mesh.userData.isPlaceholder) continue;
+    if (e.aiState === 'dead') continue;
 
     let moving = false;
     let dirX = 0, dirZ = 0;
 
-    if (now >= e.roam.waitUntil) {
-      const pos  = e.mesh.position;
-      const dx   = e.roam.target.x - pos.x;
-      const dz   = e.roam.target.z - pos.z;
-      const dist = Math.sqrt(dx*dx + dz*dz);
-      if (dist < ROAM_ARRIVE_D) {
-        e.roam.waitUntil = now + ROAM_PAUSE_MIN + Math.random() * (ROAM_PAUSE_MAX - ROAM_PAUSE_MIN);
-        e.roam.target    = randomRoamTarget();
-      } else {
-        dirX = dx / dist; dirZ = dz / dist;
-        pos.x += dirX * e.roam.speed * dt;
-        pos.z += dirZ * e.roam.speed * dt;
-        pos.y  = e.floorY;
-        moving = true;
+    // ── AI STATE MACHINE ──────────────────────
+    if (e.stats) {
+      const distToPlayer = playerPos.distanceTo(e.mesh.position);
+
+      if (e.aiState !== 'agro' && distToPlayer < liveAgroRange) {
+        e.aiState = 'agro';
+      } else if (e.aiState === 'agro' && distToPlayer > liveAgroRange * 1.6) {
+        e.aiState = 'roam';
+        if (!e.roam) e.roam = initRoam();
+      }
+
+      if (e.aiState === 'agro') {
+        const dx   = playerPos.x - e.mesh.position.x;
+        const dz   = playerPos.z - e.mesh.position.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+
+        if (dist > liveAttackRange) {
+          // Chase
+          const spd = e.roam?.speed ?? ROAM_SPEED_MAX;
+          dirX = dx / dist; dirZ = dz / dist;
+          e.mesh.position.x += dirX * spd * 1.3 * dt;
+          e.mesh.position.z += dirZ * spd * 1.3 * dt;
+          e.mesh.position.y  = e.floorY;
+          moving = true;
+        } else {
+          // Attack player
+          if (now - (e.lastAttackTime ?? 0) >= liveEntityAttackCd) {
+            e.lastAttackTime = now;
+            const def = player.defense + getEquipBonus('defense');
+            const dmg = Math.max(1, e.stats.attack - def + Math.floor(Math.random() * 7 - 3));
+            player.hp = Math.max(0, player.hp - dmg);
+            spawnDamageNumber(playerPos, dmg, true);
+            flashHit();
+            updatePlayerHud();
+            if (player.hp <= 0) onPlayerDeath();
+          }
+        }
       }
     }
 
-    // Determine if moving away from camera (for back-sheet selection)
-    let movingAway = false;
-    if (moving && (e.walkSheet || e.backSheet)) {
-      roomCamera.getWorldDirection(_cameraFwd);
-      movingAway = (dirX * _cameraFwd.x + dirZ * _cameraFwd.z) > 0.25;
+    // ── ROAMING (for roam state, or entities with no stats) ──
+    if (!e.stats || e.aiState === 'roam') {
+      if (!e.roam) continue;
+      if (now >= e.roam.waitUntil) {
+        const pos  = e.mesh.position;
+        const dx   = e.roam.target.x - pos.x;
+        const dz   = e.roam.target.z - pos.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist < ROAM_ARRIVE_D) {
+          e.roam.waitUntil = now + ROAM_PAUSE_MIN + Math.random() * (ROAM_PAUSE_MAX - ROAM_PAUSE_MIN);
+          e.roam.target    = randomRoamTarget();
+        } else {
+          dirX = dx / dist; dirZ = dz / dist;
+          pos.x += dirX * e.roam.speed * dt;
+          pos.z += dirZ * e.roam.speed * dt;
+          pos.y  = e.floorY;
+          moving = true;
+        }
+      }
     }
 
-    // Pick the active sprite sheet (walk or back), or fall back to static material
+    // ── SPRITE SHEET ANIMATION ────────────────
+    let movingAway = false;
+    if (moving && (e.walkSheet || e.backSheet)) {
+      roomCamera.getWorldDirection(_camFwd);
+      movingAway = (dirX * _camFwd.x + dirZ * _camFwd.z) > 0.25;
+    }
+
     const sheet = moving
       ? ((movingAway && e.backSheet) ? e.backSheet : (e.walkSheet ?? null))
       : null;
 
     if (sheet) {
-      // ── Animated sprite sheet ──
       if (e.mesh.material !== sheet.mat) {
         e.mesh.material = sheet.mat;
         e.mesh.scale.x  = SPRITE_WORLD_H * sheet.frameAspect;
       }
-      e.walkFrameTimer = (e.walkFrameTimer ?? 0) + e.roam.speed * dt;
+      const speed = e.roam?.speed ?? ROAM_SPEED_MIN;
+      e.walkFrameTimer = (e.walkFrameTimer ?? 0) + speed * dt;
       const frameIdx = Math.floor(e.walkFrameTimer / WALK_STEP_DIST) % sheet.frameCount;
       sheet.tex.offset.x = frameIdx / sheet.frameCount;
-
     } else if (e.frontMat) {
-      // ── Static material (idle, or no sheets yet) ──
       e.walkFrameTimer = 0;
       if (e.mesh.material !== e.frontMat) {
         e.mesh.material = e.frontMat;
         e.mesh.scale.x  = SPRITE_WORLD_H * (e.frontAspect ?? 1);
       }
-      // While moving with no sheets, fall back to static backTex swap
       const useTex = (moving && !e.walkSheet && !e.backSheet && e.backTex)
-        ? (() => { roomCamera.getWorldDirection(_cameraFwd); return (dirX * _cameraFwd.x + dirZ * _cameraFwd.z) > 0.25 ? e.backTex : e.frontTex; })()
+        ? (() => { roomCamera.getWorldDirection(_camFwd); return (dirX * _camFwd.x + dirZ * _camFwd.z) > 0.25 ? e.backTex : e.frontTex; })()
         : e.frontTex;
       if (useTex && e.frontMat.map !== useTex) {
         e.frontMat.map = useTex;
         e.frontMat.needsUpdate = true;
       }
     }
+
+    // ── CYLINDRICAL BILLBOARD ─────────────────
+    const bdx = roomCamera.position.x - e.mesh.position.x;
+    const bdz = roomCamera.position.z - e.mesh.position.z;
+    e.mesh.rotation.y = Math.atan2(bdx, bdz);
+
+    // ── SHADOW BLOB ───────────────────────────
+    if (e.shadowBlob) {
+      const sx   = e.mesh.position.x - brazier.position.x;
+      const sz   = e.mesh.position.z - brazier.position.z;
+      const dist = Math.sqrt(sx * sx + sz * sz);
+      const nx   = dist > 0.01 ? sx / dist : 0;
+      const nz   = dist > 0.01 ? sz / dist : 1;
+      e.shadowBlob.position.set(
+        e.mesh.position.x + nx * 0.3,
+        0.016,
+        e.mesh.position.z + nz * 0.3,
+      );
+      e.shadowBlob.material.opacity = Math.max(0.04, 0.5 * (1 - dist / 13));
+    }
   }
+
+  // Update HP bar positions + orientations
+  updateHpBarTransforms();
 }
 
 // ─────────────────────────────────────────────
@@ -1108,10 +1789,9 @@ function pulsePlaceholders(now) {
 }
 
 // ─────────────────────────────────────────────
-// TOOLS + POSE EDITOR
+// POSE EDITOR
 // ─────────────────────────────────────────────
 
-const toolsPanelEl       = document.getElementById('tools-panel');
 const poseEditorPanelEl  = document.getElementById('pose-editor-panel');
 const poseCanvas         = document.getElementById('pose-canvas');
 const poseFrameGrid      = document.getElementById('pose-frame-grid');
@@ -1124,14 +1804,8 @@ const poseUploadBtn      = document.getElementById('pose-upload-btn');
 const poseStatusEl       = document.getElementById('pose-status');
 const poseRefsEl         = document.getElementById('pose-refs');
 
-document.getElementById('forge-tools-btn').addEventListener('click', openTools);
-document.getElementById('tools-close-btn').addEventListener('click', closeTools);
-document.getElementById('launch-pose-editor-btn').addEventListener('click', () => { closeTools(); openPoseEditor(); });
-document.getElementById('pose-back-btn').addEventListener('click', () => { closePoseEditor(); openTools(); });
+document.getElementById('pose-back-btn').addEventListener('click', () => { closePoseEditor(); openEntities(); });
 document.getElementById('pose-close-btn').addEventListener('click', closePoseEditor);
-
-function openTools()  { toolsPanelEl.dataset.open = 'true'; }
-function closeTools() { toolsPanelEl.dataset.open = 'false'; }
 
 // ── Pose editor Three.js state (dedicated renderer + scene) ──
 
@@ -1436,6 +2110,257 @@ function poseStep() {
 }
 
 // ─────────────────────────────────────────────
+// ARCANUM PANEL
+// ─────────────────────────────────────────────
+
+const arcanumPanelEl = document.getElementById('arcanum-panel');
+
+function openArcanumPanel() {
+  arcanumPanelEl.dataset.open = 'true';
+  loadArcanumConfig();
+  renderArcanumSheet();
+}
+function closeArcanumPanel() { arcanumPanelEl.dataset.open = 'false'; }
+
+function renderArcanumSheet() {
+  const el = document.getElementById('arcanum-sheet');
+  const stats = [
+    { k: 'LVL',     v: player.level },
+    { k: 'HP',      v: `${player.hp}/${player.maxHp}` },
+    { k: 'XP',      v: `${player.xp}/${player.xpToNext}` },
+    { k: 'ATK',     v: player.attack + getEquipBonus('attack') },
+    { k: 'DEF',     v: player.defense + getEquipBonus('defense') },
+  ];
+  el.innerHTML = stats.map(s =>
+    `<div class="arcanum-sheet-stat"><span class="arcanum-sheet-key">${s.k}</span><span class="arcanum-sheet-val">${s.v}</span></div>`
+  ).join('');
+}
+
+async function loadArcanumConfig() {
+  try {
+    const res = await fetch(`${FORGE_BASE}/config`);
+    if (!res.ok) return;
+    const cfg = await res.json();
+    document.getElementById('arc-xp-mult').value  = cfg.xp_multiplier  ?? 1.0;
+    document.getElementById('arc-hp-gain').value   = cfg.level_hp_gain  ?? 10;
+    document.getElementById('arc-atk-gain').value  = cfg.level_atk_gain ?? 2;
+    document.getElementById('arc-def-gain').value  = cfg.level_def_gain ?? 1;
+  } catch (_) {}
+}
+
+async function saveArcanumConfig() {
+  const btn = document.getElementById('arc-save-btn');
+  const statusEl = document.getElementById('arc-status');
+  btn.disabled = true;
+  setStatus(statusEl, 'saving', 'inscribing…');
+  try {
+    const cfgRes = await fetch(`${FORGE_BASE}/config`);
+    if (!cfgRes.ok) throw new Error('could not fetch config');
+    const cfg = await cfgRes.json();
+    cfg.xp_multiplier  = parseFloat(document.getElementById('arc-xp-mult').value);
+    cfg.level_hp_gain  = parseInt(document.getElementById('arc-hp-gain').value);
+    cfg.level_atk_gain = parseInt(document.getElementById('arc-atk-gain').value);
+    cfg.level_def_gain = parseInt(document.getElementById('arc-def-gain').value);
+    const res = await fetch(`${FORGE_BASE}/config`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    liveXpMult = cfg.xp_multiplier; liveLevelHpGain = cfg.level_hp_gain;
+    liveLevelAtkGain = cfg.level_atk_gain; liveLevelDefGain = cfg.level_def_gain;
+    setStatus(statusEl, 'saved', 'inscribed');
+    setTimeout(() => { statusEl.dataset.state = 'idle'; }, 2500);
+  } catch (e) { setStatus(statusEl, 'error', e.message); }
+  finally { btn.disabled = false; }
+}
+
+document.getElementById('arcanum-close-btn').addEventListener('click', closeArcanumPanel);
+document.getElementById('arc-save-btn').addEventListener('click', saveArcanumConfig);
+
+// ─────────────────────────────────────────────
+// MACHINARIUM PANEL
+// ─────────────────────────────────────────────
+
+const machinariumPanelEl = document.getElementById('machinarium-panel');
+
+function openMachinariumPanel() {
+  machinariumPanelEl.dataset.open = 'true';
+  loadMachinariumConfig();
+}
+function closeMachinariumPanel() { machinariumPanelEl.dataset.open = 'false'; }
+
+async function loadMachinariumConfig() {
+  try {
+    const res = await fetch(`${FORGE_BASE}/config`);
+    if (!res.ok) return;
+    const cfg = await res.json();
+    document.getElementById('mac-agro-range').value  = cfg.agro_range        ?? 6.0;
+    document.getElementById('mac-attack-range').value= cfg.attack_range       ?? 1.8;
+    document.getElementById('mac-melee-range').value = cfg.melee_range        ?? 2.5;
+    document.getElementById('mac-entity-cd').value   = cfg.entity_attack_cd   ?? 2.5;
+    document.getElementById('mac-player-cd').value   = cfg.player_attack_cd   ?? 0.55;
+    document.getElementById('mac-level-min').value   = cfg.entity_level_min   ?? 1;
+    document.getElementById('mac-level-max').value   = cfg.entity_level_max   ?? 5;
+    document.getElementById('mac-drop-chance').value = Math.round((cfg.drop_chance ?? 0.30) * 100);
+  } catch (_) {}
+}
+
+async function saveMachinariumConfig() {
+  const btn = document.getElementById('mac-save-btn');
+  const statusEl = document.getElementById('mac-status');
+  btn.disabled = true;
+  setStatus(statusEl, 'saving', 'inscribing…');
+  try {
+    const cfgRes = await fetch(`${FORGE_BASE}/config`);
+    if (!cfgRes.ok) throw new Error('could not fetch config');
+    const cfg = await cfgRes.json();
+    cfg.agro_range       = parseFloat(document.getElementById('mac-agro-range').value);
+    cfg.attack_range     = parseFloat(document.getElementById('mac-attack-range').value);
+    cfg.melee_range      = parseFloat(document.getElementById('mac-melee-range').value);
+    cfg.entity_attack_cd = parseFloat(document.getElementById('mac-entity-cd').value);
+    cfg.player_attack_cd = parseFloat(document.getElementById('mac-player-cd').value);
+    cfg.entity_level_min = parseInt(document.getElementById('mac-level-min').value);
+    cfg.entity_level_max = parseInt(document.getElementById('mac-level-max').value);
+    cfg.drop_chance      = parseInt(document.getElementById('mac-drop-chance').value) / 100;
+    const res = await fetch(`${FORGE_BASE}/config`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    // Apply immediately to live session
+    liveAgroRange = cfg.agro_range; liveAttackRange = cfg.attack_range;
+    liveMeleeRange = cfg.melee_range; liveEntityAttackCd = cfg.entity_attack_cd;
+    livePlayerAttackCd = cfg.player_attack_cd; liveDropChance = cfg.drop_chance;
+    setStatus(statusEl, 'saved', 'inscribed');
+    setTimeout(() => { statusEl.dataset.state = 'idle'; }, 2500);
+  } catch (e) { setStatus(statusEl, 'error', e.message); }
+  finally { btn.disabled = false; }
+}
+
+document.getElementById('machinarium-close-btn').addEventListener('click', closeMachinariumPanel);
+document.getElementById('mac-save-btn').addEventListener('click', saveMachinariumConfig);
+
+// ─────────────────────────────────────────────
+// SUBSTANCE LABORATORY PANEL
+// ─────────────────────────────────────────────
+
+const substancePanelEl = document.getElementById('substance-panel');
+let substanceDropPool  = [];   // working copy while panel is open
+
+function openSubstancePanel() {
+  substancePanelEl.dataset.open = 'true';
+  loadSubstancePool();
+}
+function closeSubstancePanel() { substancePanelEl.dataset.open = 'false'; }
+
+async function loadSubstancePool() {
+  try {
+    const res = await fetch(`${FORGE_BASE}/config`);
+    if (!res.ok) return;
+    const cfg = await res.json();
+    substanceDropPool = Array.isArray(cfg.drop_pool) ? cfg.drop_pool.map(i => ({...i})) : [];
+  } catch (_) { substanceDropPool = []; }
+  renderSubstancePool();
+}
+
+function renderSubstancePool() {
+  const el = document.getElementById('substance-drop-pool');
+  if (substanceDropPool.length === 0) {
+    el.innerHTML = '<div class="muted" style="padding:6px 8px;font-size:16px">Pool is empty — all entities will drop nothing.</div>';
+    return;
+  }
+  el.innerHTML = substanceDropPool.map((item, idx) => `
+    <div class="sub-drop-row">
+      <span class="sub-drop-row-name">${escapeHtml(item.name)}</span>
+      <span class="sub-drop-row-type">${item.type}${item.subtype ? '/' + item.subtype : ''}</span>
+      <span class="sub-drop-row-stat">${item.stat_key} +${item.stat_val}</span>
+      <span class="sub-drop-row-rarity rarity-${item.rarity}">${item.rarity}</span>
+      <button class="sub-drop-remove-btn" data-idx="${idx}">REMOVE</button>
+    </div>
+  `).join('');
+  el.querySelectorAll('.sub-drop-remove-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      substanceDropPool.splice(parseInt(btn.dataset.idx), 1);
+      renderSubstancePool();
+    });
+  });
+}
+
+async function saveSubstancePool() {
+  const btn = document.getElementById('sub-pool-save-btn');
+  const statusEl = document.getElementById('sub-pool-status');
+  btn.disabled = true;
+  setStatus(statusEl, 'saving', 'saving…');
+  try {
+    const cfgRes = await fetch(`${FORGE_BASE}/config`);
+    if (!cfgRes.ok) throw new Error('could not fetch config');
+    const cfg = await cfgRes.json();
+    cfg.drop_pool = substanceDropPool;
+    const res = await fetch(`${FORGE_BASE}/config`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    // Update live pool
+    liveDropPool = substanceDropPool.map(item => ({
+      name: item.name, type: item.type, subtype: item.subtype ?? '',
+      stats: { [item.stat_key]: item.stat_val }, rarity: item.rarity,
+      color: TYPE_COLORS[item.type] ?? 0xddaa00,
+    }));
+    setStatus(statusEl, 'saved', 'saved');
+    setTimeout(() => { statusEl.dataset.state = 'idle'; }, 2500);
+  } catch (e) { setStatus(statusEl, 'error', e.message); }
+  finally { btn.disabled = false; }
+}
+
+document.getElementById('sub-add-btn').addEventListener('click', () => {
+  const name    = document.getElementById('sub-new-name').value.trim();
+  if (!name) return;
+  const item = {
+    name,
+    type:     document.getElementById('sub-new-type').value,
+    subtype:  document.getElementById('sub-new-subtype').value.trim(),
+    stat_key: document.getElementById('sub-new-stat-key').value,
+    stat_val: parseInt(document.getElementById('sub-new-stat-val').value) || 1,
+    rarity:   document.getElementById('sub-new-rarity').value,
+  };
+  substanceDropPool.push(item);
+  renderSubstancePool();
+  document.getElementById('sub-new-name').value    = '';
+  document.getElementById('sub-new-subtype').value = '';
+  document.getElementById('sub-new-stat-val').value= '';
+});
+
+document.getElementById('sub-pool-save-btn').addEventListener('click', saveSubstancePool);
+
+document.getElementById('sub-forge-btn').addEventListener('click', async () => {
+  const input    = document.getElementById('sub-forge-input');
+  const statusEl = document.getElementById('sub-forge-status');
+  const desc = input.value.trim();
+  if (!desc || !profileId) return;
+  const btn = document.getElementById('sub-forge-btn');
+  btn.disabled = true;
+  setStatus(statusEl, 'saving', 'forging…');
+  try {
+    const res = await fetch(`${FORGE_BASE}/items`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        description: desc, profile_id: profileId,
+        name: desc, type: 'weapon', subtype: '', rarity: 'common',
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const job = await res.json();
+    setStatus(statusEl, 'saved', `queued — job ${job.id}`);
+    input.value = '';
+    setTimeout(() => { statusEl.dataset.state = 'idle'; }, 4000);
+  } catch (e) { setStatus(statusEl, 'error', e.message); }
+  finally { btn.disabled = false; }
+});
+
+document.getElementById('substance-close-btn').addEventListener('click', closeSubstancePanel);
+
+// ─────────────────────────────────────────────
 // MAIN LOOP
 // ─────────────────────────────────────────────
 
@@ -1454,7 +2379,8 @@ function tick() {
     renderer.render(forgeScene, forgeCamera);
   } else {
     updateMovement(dt);
-    updateRoaming(dt);
+    updateEntities(dt);
+    updateWorldItems(t);
     pulsePlaceholders(now);
     renderer.render(roomScene, roomCamera);
   }

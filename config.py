@@ -73,12 +73,62 @@ DEFAULTS: dict[str, Any] = {
     "walk_pose_slugs": {},
     "back_pose_slugs": {},
 
+    # --- item rendering templates ---
+    # Used when generating item sprites via POST /items.
+    # {item_description} is replaced with the player-supplied item description.
+    "item_prompt_template": (
+        "{item_description}, "
+        "fantasy game item, isolated object, clean solid white background, "
+        "retro pixel art item illustration, clear silhouette, high contrast against the background"
+    ),
+    # Variant templates for item jobs (used like entity variant templates).
+    # init_image carries the item identity; prompts describe only the presentation context.
+    "icon_prompt_template": (
+        "inventory icon, small detailed item portrait, "
+        "clean black background, centered composition, no text, no frame, "
+        "pixel art style, high detail, clear readability at small size"
+    ),
+    "world_prompt_template": (
+        "item lying on dungeon stone floor, slightly angled three-quarter view, "
+        "clean solid white background, clear silhouette, drop shadow"
+    ),
+
     # --- lore source ---
     # Free-text world description. Currently stored only.
     # Next layer: feed into an LLM-composer that derives prompt modifiers
     # from lore + player behaviour, making every run feel like the same
     # world rather than a random sprite soup.
     "lore": "",
+
+    # --- Arcanum: progression tuning ---
+    "xp_multiplier":   1.0,   # multiplied on every XP gain
+    "level_hp_gain":   10,    # max_hp increase per level-up
+    "level_atk_gain":  2,     # attack increase per level-up
+    "level_def_gain":  1,     # defense increase per level-up
+
+    # --- Machinarium: combat rules ---
+    "agro_range":         6.0,
+    "attack_range":       1.8,
+    "melee_range":        2.5,
+    "entity_attack_cd":   2.5,
+    "player_attack_cd":   0.55,
+    "entity_level_min":   1,
+    "entity_level_max":   5,
+    "drop_chance":        0.30,
+
+    # --- Substance Lab: drop pool ---
+    # List of item templates available as entity death drops.
+    # Each entry: {name, type, subtype, stat_key, stat_val, rarity}
+    # type: weapon | armor | consumable | accessory
+    # rarity: common | uncommon | rare | legendary
+    "drop_pool": [
+        {"name": "Health Potion",     "type": "consumable", "subtype": "",        "stat_key": "hp_restore", "stat_val": 30, "rarity": "common"},
+        {"name": "Iron Sword",        "type": "weapon",     "subtype": "melee",   "stat_key": "attack",     "stat_val": 5,  "rarity": "common"},
+        {"name": "Wooden Shield",     "type": "armor",      "subtype": "offhand", "stat_key": "defense",    "stat_val": 3,  "rarity": "common"},
+        {"name": "Leather Vest",      "type": "armor",      "subtype": "body",    "stat_key": "defense",    "stat_val": 5,  "rarity": "common"},
+        {"name": "Ring of Swiftness", "type": "accessory",  "subtype": "",        "stat_key": "attack",     "stat_val": 2,  "rarity": "uncommon"},
+        {"name": "Hunter's Bow",      "type": "weapon",     "subtype": "ranged",  "stat_key": "attack",     "stat_val": 4,  "rarity": "uncommon"},
+    ],
 }
 
 _data: dict[str, Any] = dict(DEFAULTS)
