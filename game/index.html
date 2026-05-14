@@ -100,44 +100,68 @@
   <div id="forge-hub" data-active="false">
     <div class="forge-menu">
       <div class="forge-menu-header">
-        <span class="forge-title">// THE FORGE</span>
+        <span class="forge-title">// DUNGEON-FORGE</span>
         <span class="forge-player-name" id="forge-player-name">—</span>
       </div>
       <div class="forge-menu-body">
-        <button id="forge-enter-btn" class="forge-enter-btn">▶ ENTER THE ROOM</button>
-        <div class="forge-actions">
-          <button class="forge-action-btn" id="forge-lore-btn">LORE BOOK</button>
-          <button class="forge-action-btn" id="forge-config-btn">CONFIG</button>
-          <button class="forge-action-btn" id="forge-bestiary-btn">BESTIARY</button>
-          <button class="forge-action-btn" id="forge-tools-btn">TOOLS</button>
+        <div class="hub-grid">
+          <div class="hub-room-card" id="hub-forge-card">
+            <div class="hub-room-sigil">⚒</div>
+            <div class="hub-room-name">THE FORGE</div>
+            <div class="hub-room-tagline">Begin an experience. Spawn entities into the world.</div>
+          </div>
+          <div class="hub-room-card" id="hub-library-card">
+            <div class="hub-room-sigil">✦</div>
+            <div class="hub-room-name">THE LIBRARY</div>
+            <div class="hub-room-tagline">Inscribe world lore. Consult the Entities Codex.</div>
+          </div>
+          <div class="hub-room-card hub-room-sealed">
+            <div class="hub-room-sigil">◈</div>
+            <div class="hub-room-name">GALLERY</div>
+            <div class="hub-room-tagline">Resume saved experiences.</div>
+            <div class="hub-room-sealed-label">COMING SOON</div>
+          </div>
+          <div class="hub-room-card hub-room-sealed">
+            <div class="hub-room-sigil">⚙</div>
+            <div class="hub-room-name">MACHINARIUM</div>
+            <div class="hub-room-tagline">Configure rules, systems, and game modes.</div>
+            <div class="hub-room-sealed-label">SEALED</div>
+          </div>
+          <div class="hub-room-card hub-room-sealed">
+            <div class="hub-room-sigil">✧</div>
+            <div class="hub-room-name">ARCANUM</div>
+            <div class="hub-room-tagline">Define skills, abilities, and progression.</div>
+            <div class="hub-room-sealed-label">SEALED</div>
+          </div>
+          <div class="hub-room-card hub-room-sealed">
+            <div class="hub-room-sigil">⚗</div>
+            <div class="hub-room-name">SUBSTANCE LAB</div>
+            <div class="hub-room-tagline">Craft equipment, items, and inanimate content.</div>
+            <div class="hub-room-sealed-label">SEALED</div>
+          </div>
+          <div class="hub-room-card hub-room-sealed">
+            <div class="hub-room-sigil">◇</div>
+            <div class="hub-room-name">TERRA FABRICATOR</div>
+            <div class="hub-room-tagline">Shape worlds, environments, and procedural generation.</div>
+            <div class="hub-room-sealed-label">SEALED</div>
+          </div>
+          <div class="hub-room-card hub-room-sealed">
+            <div class="hub-room-sigil">⊕</div>
+            <div class="hub-room-name">LOBBY</div>
+            <div class="hub-room-tagline">Find others. Multiplayer features arrive here.</div>
+            <div class="hub-room-sealed-label">SEALED</div>
+          </div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Tools panel: accessible from the Forge hub. -->
-  <div id="tools-panel" data-open="false">
-    <div class="tools-frame">
-      <div class="tools-header">
-        <span class="tools-title">// TOOLS</span>
-        <button class="tools-close-btn" id="tools-close-btn">✕ CLOSE</button>
-      </div>
-      <div class="tools-body">
-        <div class="tool-card" id="tool-pose-editor">
-          <div class="tool-card-name">POSE EDITOR</div>
-          <div class="tool-card-desc">Stage and upload pose reference images to guide walk cycle generation via ControlNet.</div>
-          <button class="tool-launch-btn" id="launch-pose-editor-btn">LAUNCH →</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Pose editor panel: accessible from the Tools panel. -->
+  <!-- Pose editor panel: accessible from the Entities panel. -->
   <div id="pose-editor-panel" data-open="false">
     <div class="pose-frame">
       <div class="pose-header">
         <span class="pose-title">// POSE EDITOR</span>
-        <button class="pose-nav-btn" id="pose-back-btn">← TOOLS</button>
+        <button class="pose-nav-btn" id="pose-back-btn">← ENTITIES</button>
         <button class="pose-nav-btn" id="pose-close-btn">✕ CLOSE</button>
       </div>
       <div class="pose-body">
@@ -173,34 +197,49 @@
     </div>
   </div>
 
-  <!-- Lore book panel: accessible from the Forge hub. -->
-  <div id="lore-panel" data-open="false">
-    <div class="lore-frame">
-      <div class="lore-header">
-        <span class="lore-title">// LORE BOOK</span>
-        <button class="lore-close-btn" id="lore-close-btn">✕ CLOSE</button>
+  <!-- Library panel: accessible from the hub. Contains lore editor + Entities Codex. -->
+  <div id="library-panel" data-open="false">
+    <div class="library-frame">
+      <div class="library-header">
+        <span class="library-title">// THE LIBRARY</span>
+        <button class="library-close-btn" id="library-close-btn">✕ CLOSE</button>
       </div>
-      <div class="lore-body">
-        <p class="muted">Write your world here. This description will shape every render — the tone, the creatures, the palette, the names. The more specific, the more coherent the output. Saved to the forge config and fed into the generation pipeline.</p>
-        <textarea id="lore-textarea" class="lore-textarea" spellcheck="false"
-                  placeholder="A shattered realm where crystallised magic drifts like snow. The old empire collapsed a century ago — its ruins still hum with residual energy. Creatures that survived the collapse mutated toward the dominant elemental frequencies of their region. The aesthetic is crumbling baroque, amber light through fractured stained glass, and the smell of ozone."></textarea>
-      </div>
-      <div class="lore-footer">
-        <div id="lore-status" class="lore-status" data-state="idle"></div>
-        <button id="lore-save-btn">INSCRIBE</button>
+      <div class="library-body">
+        <div class="library-section">
+          <div class="library-section-label">// world lore</div>
+          <p class="muted">Write your world here. This description shapes every render — the tone, the creatures, the palette, the names. The more specific, the more coherent the output.</p>
+          <textarea id="lore-textarea" class="lore-textarea" spellcheck="false"
+                    placeholder="A shattered realm where crystallised magic drifts like snow. The old empire collapsed a century ago — its ruins still hum with residual energy. Creatures that survived the collapse mutated toward the dominant elemental frequencies of their region. The aesthetic is crumbling baroque, amber light through fractured stained glass, and the smell of ozone."></textarea>
+        </div>
+        <div class="library-lore-footer">
+          <div id="lore-status" class="lore-status" data-state="idle"></div>
+          <button id="lore-save-btn">INSCRIBE</button>
+        </div>
+        <div class="library-codex">
+          <div class="library-codex-sigil">◆</div>
+          <div class="library-codex-info">
+            <div class="library-codex-name">ENTITIES CODEX</div>
+            <div class="library-codex-desc">A tome of every entity forged in this realm. Browse variants, manage pose references, and regenerate assets.</div>
+          </div>
+          <button id="library-entities-btn" class="library-codex-btn">CONSULT →</button>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- Bestiary panel: accessible from the Forge hub. -->
-  <div id="bestiary-panel" data-open="false">
-    <div class="bestiary-frame">
-      <div class="bestiary-header">
-        <span class="bestiary-title">// BESTIARY</span>
-        <button class="bestiary-close-btn" id="bestiary-close-btn">✕ CLOSE</button>
+  <!-- Entities panel: accessible from the Library's Codex. -->
+  <div id="entities-panel" data-open="false">
+    <div class="entities-frame">
+      <div class="entities-header">
+        <span class="entities-title">// ENTITIES</span>
+        <div class="entities-header-actions">
+          <button class="entities-tool-btn" id="entities-pose-btn">POSE EDITOR →</button>
+          <button class="entities-back-btn" id="entities-back-btn">← LIBRARY</button>
+          <button class="entities-close-btn" id="entities-close-btn">✕ CLOSE</button>
+        </div>
       </div>
-      <div class="bestiary-body" id="bestiary-body">
-        <p class="muted bestiary-empty">No creatures forged yet. Spawn something in the room.</p>
+      <div class="entities-body" id="entities-body">
+        <p class="muted entities-empty">No entities forged yet. Spawn something in the room.</p>
       </div>
     </div>
   </div>

@@ -85,6 +85,54 @@
       "error": null,
       "created_at": 1778598139.11839,
       "finished_at": 1778598860.777324
+    },
+    {
+      "id": "efbec7e9",
+      "sprite_job_id": "ddcb15fc",
+      "variant_type": "walk",
+      "prompt": "{user_prompt}, walking forward, smooth natural gait cycle, looping walk animation, seamless motion",
+      "status": "done",
+      "sprite_name": "efbec7e9_walk_sheet.png",
+      "frame_count": 4,
+      "error": null,
+      "created_at": 1778599600.2754416,
+      "finished_at": 1778599839.1614425
+    },
+    {
+      "id": "9cb0446b",
+      "sprite_job_id": "ddcb15fc",
+      "variant_type": "corpse",
+      "prompt": "lying dead on the ground, lifeless, collapsed posture, full body visible, centered, clean solid white background",
+      "status": "done",
+      "sprite_name": "9cb0446b_corpse.png",
+      "frame_count": 1,
+      "error": null,
+      "created_at": 1778599600.2755058,
+      "finished_at": 1778599872.1475465
+    },
+    {
+      "id": "17524bbb",
+      "sprite_job_id": "ddcb15fc",
+      "variant_type": "damage",
+      "prompt": "recoiling from a hit, flinching, body twisting away from impact, full body visible, centered, clean solid white background",
+      "status": "done",
+      "sprite_name": "17524bbb_damage.png",
+      "frame_count": 1,
+      "error": null,
+      "created_at": 1778599600.2755263,
+      "finished_at": 1778599903.6979406
+    },
+    {
+      "id": "64abb49f",
+      "sprite_job_id": "ddcb15fc",
+      "variant_type": "back",
+      "prompt": "turned around, facing away, rear view, back of body visible, full body visible, centered, clean solid white background",
+      "status": "done",
+      "sprite_name": "64abb49f_back_sheet.png",
+      "frame_count": 4,
+      "error": null,
+      "created_at": 1778599600.2755406,
+      "finished_at": 1778600204.1278164
     }
   ]
 }

@@ -79,7 +79,7 @@ function hideForgeHub() {
 function enterRoom() {
   appMode = 'room';
   hideForgeHub();
-  closeLorePanel();
+  closeLibraryPanel();
   terminal.dataset.open = 'true';
   crosshair.dataset.visible = 'false';
 }
@@ -413,33 +413,25 @@ function updateForge(dt, t) {
 // FORGE HUB UI
 // ─────────────────────────────────────────────
 
-document.getElementById('forge-enter-btn').addEventListener('click', enterRoom);
+document.getElementById('hub-forge-card').addEventListener('click', enterRoom);
+document.getElementById('hub-library-card').addEventListener('click', openLibraryPanel);
 
-// Config button — opens the config tab in the terminal
-document.getElementById('forge-config-btn').addEventListener('click', () => {
-  enterRoom();
-  // Switch terminal to config tab after a tick so the panel is visible
-  setTimeout(() => {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === 'config'));
-    document.querySelectorAll('.tab-panel').forEach(p => p.style.display = p.dataset.panel === 'config' ? '' : 'none');
-    loadConfig();
-  }, 50);
-});
+// ─────────────────────────────────────────────
+// LIBRARY PANEL
+// ─────────────────────────────────────────────
 
-// Lore book
-const lorePanelEl    = document.getElementById('lore-panel');
+const libraryPanelEl = document.getElementById('library-panel');
 const loreTextarea   = document.getElementById('lore-textarea');
 const loreStatus     = document.getElementById('lore-status');
 const loreSaveBtn    = document.getElementById('lore-save-btn');
-const loreCloseBtn   = document.getElementById('lore-close-btn');
 
-function openLorePanel() {
-  lorePanelEl.dataset.open = 'true';
+function openLibraryPanel() {
+  libraryPanelEl.dataset.open = 'true';
   loadLore();
   loreTextarea.focus();
 }
-function closeLorePanel() {
-  lorePanelEl.dataset.open = 'false';
+function closeLibraryPanel() {
+  libraryPanelEl.dataset.open = 'false';
 }
 
 async function loadLore() {
@@ -453,7 +445,6 @@ async function saveLore() {
   loreSaveBtn.disabled = true;
   setStatus(loreStatus, 'saving', 'inscribing…');
   try {
-    // Fetch current config so we only change the lore field
     const cfgRes = await fetch(`${FORGE_BASE}/config`);
     if (!cfgRes.ok) throw new Error('could not fetch config');
     const cfg = await cfgRes.json();
@@ -470,19 +461,21 @@ async function saveLore() {
   } finally { loreSaveBtn.disabled = false; }
 }
 
-document.getElementById('forge-lore-btn').addEventListener('click', openLorePanel);
-loreCloseBtn.addEventListener('click', closeLorePanel);
+document.getElementById('library-close-btn').addEventListener('click', closeLibraryPanel);
 loreSaveBtn.addEventListener('click', saveLore);
+document.getElementById('library-entities-btn').addEventListener('click', () => {
+  closeLibraryPanel();
+  openEntities();
+});
 
 // ─────────────────────────────────────────────
-// BESTIARY
+// ENTITIES
 // ─────────────────────────────────────────────
 
 const VARIANT_TYPES = ['corpse', 'damage', 'back'];
 
-const bestiaryPanelEl  = document.getElementById('bestiary-panel');
-const bestiaryBody     = document.getElementById('bestiary-body');
-const bestiaryCloseBtn = document.getElementById('bestiary-close-btn');
+const entitiesPanelEl  = document.getElementById('entities-panel');
+const entitiesBody     = document.getElementById('entities-body');
 
 async function loadJobHistory() {
   try {
@@ -520,56 +513,63 @@ async function loadJobHistory() {
   } catch (e) { console.warn('history load failed', e); }
 }
 
-async function openBestiary() {
-  bestiaryPanelEl.dataset.open = 'true';
+async function openEntities() {
+  entitiesPanelEl.dataset.open = 'true';
   await loadJobHistory();
-  renderBestiary();
+  renderEntities();
 }
-function closeBestiary() { bestiaryPanelEl.dataset.open = 'false'; }
+function closeEntities() { entitiesPanelEl.dataset.open = 'false'; }
 
-bestiaryCloseBtn.addEventListener('click', closeBestiary);
-document.getElementById('forge-bestiary-btn').addEventListener('click', openBestiary);
+document.getElementById('entities-close-btn').addEventListener('click', closeEntities);
+document.getElementById('entities-back-btn').addEventListener('click', () => {
+  closeEntities();
+  openLibraryPanel();
+});
+document.getElementById('entities-pose-btn').addEventListener('click', () => {
+  closeEntities();
+  openPoseEditor();
+});
 
-function renderBestiary() {
+function renderEntities() {
   const entries = [...sprites.values()].filter(e => e.status === 'done');
   if (!entries.length) {
-    bestiaryBody.innerHTML = '<p class="muted bestiary-empty">No creatures forged yet. Spawn something in the room.</p>';
+    entitiesBody.innerHTML = '<p class="muted entities-empty">No entities forged yet. Spawn something in the room.</p>';
     return;
   }
-  bestiaryBody.innerHTML = '';
+  entitiesBody.innerHTML = '';
   for (const e of entries) {
     const card = document.createElement('div');
-    card.className = 'beast-card';
+    card.className = 'entity-card';
     card.dataset.jobId = e.jobId;
 
     // Thumbnail
     const thumbWrap = document.createElement('div');
     if (e.spriteSrc) {
       const img = document.createElement('img');
-      img.className = 'beast-thumb'; img.src = e.spriteSrc; img.alt = e.prompt;
+      img.className = 'entity-thumb'; img.src = e.spriteSrc; img.alt = e.prompt;
       thumbWrap.appendChild(img);
     } else {
       const ph = document.createElement('div');
-      ph.className = 'beast-thumb-placeholder'; ph.textContent = '?';
+      ph.className = 'entity-thumb-placeholder'; ph.textContent = '?';
       thumbWrap.appendChild(ph);
     }
     card.appendChild(thumbWrap);
 
     // Info column
     const info = document.createElement('div');
-    info.className = 'beast-info';
+    info.className = 'entity-info';
 
     const promptEl = document.createElement('div');
-    promptEl.className = 'beast-prompt'; promptEl.textContent = e.prompt;
+    promptEl.className = 'entity-prompt'; promptEl.textContent = e.prompt;
     info.appendChild(promptEl);
 
-    // Variant badges — click to view sprite in new tab
+    // Variant badges
     const badges = document.createElement('div');
-    badges.className = 'beast-variants';
+    badges.className = 'entity-variants';
     for (const vt of VARIANT_TYPES) {
       const vj = e.variants?.[vt];
       const badge = document.createElement('button');
-      badge.className = 'beast-variant-badge';
+      badge.className = 'entity-variant-badge';
       badge.textContent = vt.toUpperCase();
       badge.dataset.state = vj ? vj.status : 'none';
       if (vj?.status === 'done' && vj.spriteName) {
@@ -584,9 +584,9 @@ function renderBestiary() {
 
     // Regen row
     const regenRow = document.createElement('div');
-    regenRow.className = 'beast-regen-row';
+    regenRow.className = 'entity-regen-row';
     const regenInput = document.createElement('input');
-    regenInput.className = 'beast-regen-input'; regenInput.type = 'text';
+    regenInput.className = 'entity-regen-input'; regenInput.type = 'text';
     regenInput.placeholder = 'regen prompt override (leave blank to use template)…';
     const regenSelect = document.createElement('select');
     regenSelect.style.cssText = 'background:var(--bg-deep);color:var(--amber);border:1px solid var(--rust);padding:3px 6px;font-family:VT323,monospace;font-size:18px;outline:none;';
@@ -595,7 +595,7 @@ function renderBestiary() {
       regenSelect.appendChild(opt);
     });
     const regenBtn = document.createElement('button');
-    regenBtn.className = 'beast-regen-btn'; regenBtn.textContent = 'REGEN';
+    regenBtn.className = 'entity-regen-btn'; regenBtn.textContent = 'REGEN';
     regenBtn.addEventListener('click', async () => {
       regenBtn.disabled = true;
       const vt = regenSelect.value;
@@ -611,7 +611,7 @@ function renderBestiary() {
         e.variants[vt] = { jobId: vj.id, status: vj.status, spriteName: null };
         pollVariantJob(vj.id, vt, e);
         refreshJobList();
-        renderBestiary();
+        renderEntities();
       } catch (err) { console.error('regen failed', err); }
       finally { regenBtn.disabled = false; }
     });
@@ -619,7 +619,7 @@ function renderBestiary() {
     info.appendChild(regenRow);
 
     card.appendChild(info);
-    bestiaryBody.appendChild(card);
+    entitiesBody.appendChild(card);
   }
 }
 
@@ -657,7 +657,7 @@ async function pollVariantJob(varJobId, variantType, entry) {
     entry.variants[variantType] = { jobId: varJobId, status: vj.status, spriteName: vj.sprite_name, frameCount: vj.frame_count ?? 1 };
 
     refreshJobList();
-    if (bestiaryPanelEl.dataset.open === 'true') renderBestiary();
+    if (entitiesPanelEl.dataset.open === 'true') renderEntities();
 
     if (vj.status === 'done' && vj.sprite_name) {
       const frameCount = vj.frame_count ?? 1;
@@ -1108,10 +1108,9 @@ function pulsePlaceholders(now) {
 }
 
 // ─────────────────────────────────────────────
-// TOOLS + POSE EDITOR
+// POSE EDITOR
 // ─────────────────────────────────────────────
 
-const toolsPanelEl       = document.getElementById('tools-panel');
 const poseEditorPanelEl  = document.getElementById('pose-editor-panel');
 const poseCanvas         = document.getElementById('pose-canvas');
 const poseFrameGrid      = document.getElementById('pose-frame-grid');
@@ -1124,14 +1123,8 @@ const poseUploadBtn      = document.getElementById('pose-upload-btn');
 const poseStatusEl       = document.getElementById('pose-status');
 const poseRefsEl         = document.getElementById('pose-refs');
 
-document.getElementById('forge-tools-btn').addEventListener('click', openTools);
-document.getElementById('tools-close-btn').addEventListener('click', closeTools);
-document.getElementById('launch-pose-editor-btn').addEventListener('click', () => { closeTools(); openPoseEditor(); });
-document.getElementById('pose-back-btn').addEventListener('click', () => { closePoseEditor(); openTools(); });
+document.getElementById('pose-back-btn').addEventListener('click', () => { closePoseEditor(); openEntities(); });
 document.getElementById('pose-close-btn').addEventListener('click', closePoseEditor);
-
-function openTools()  { toolsPanelEl.dataset.open = 'true'; }
-function closeTools() { toolsPanelEl.dataset.open = 'false'; }
 
 // ── Pose editor Three.js state (dedicated renderer + scene) ──
 
