@@ -31,11 +31,19 @@ export const DEFAULT_EXPERIENCES = [
       playerSpeed:   4.5,
       playerHp:      100,
       friendlyFire:  false,
+      enemyDamage:   10,
+      lootDropRate:  0.3,
+    },
+    state: {
+      flags:         { boss_defeated: false, shrine_activated: false },
+      counters:      { enemies_killed: 0, rooms_visited: 0 },
+      entityStates:  {},
     },
     lore: {
       title:       'The Dungeon Beneath',
       description: 'Ancient halls, forgotten horrors.',
     },
+    triggers: [],
   },
 ];
 

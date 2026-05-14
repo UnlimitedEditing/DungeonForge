@@ -22,6 +22,9 @@ import {
   fetchExperiences, fetchExperience, createFork, saveExperience,
   encodeShareCode, decodeShareCode, importFromCode, DEFAULT_EXPERIENCES,
 } from './experiences.js';
+import { emit, on, off, EVENTS } from './events.js';
+import { init as initWorldState, reset as resetWorldState, snapshot as snapshotState } from './world-state.js';
+import { loadTriggers, unloadTriggers, getLoadedTriggers } from './triggers.js';
 
 // ─────────────────────────────────────────────
 // CONSTANTS
@@ -183,8 +186,18 @@ async function launchExperience(exp) {
   statsHudEl.dataset.visible = 'true';
   document.getElementById('minimap').dataset.visible = 'true';
   levelComplete = false;
+  initWorldState(exp.state ?? {});
   await applyGameConfig();
   _buildLevel(exp);
+  applyExperienceRules(exp);
+  updatePlayerHud();
+  emit(EVENTS.EXPERIENCE_LOADED, { id: exp.id, name: exp.name });
+}
+
+function applyExperienceRules(exp) {
+  const rules = exp?.rules ?? {};
+  player.maxHp = rules.playerHp ?? 100;
+  if (player.hp > player.maxHp) player.hp = player.maxHp;
   updatePlayerHud();
 }
 
@@ -206,6 +219,9 @@ function _buildLevel(exp) {
 
   roomScene.add(levelGroup);
   levelLights.forEach(l => roomScene.add(l));
+
+  loadTriggers(currentLevel.tiles);
+  emit(EVENTS.LEVEL_LOADED, { seed, roomCount: currentLevel.rooms.length });
 
   // Apply world config from experience
   const world = exp.world || {};
@@ -241,6 +257,9 @@ function _spawnLevelEntities(exp) {
 function returnToForge() {
   appMode = 'forge';
   if (controls.isLocked) controls.unlock();
+  unloadTriggers();
+  resetWorldState();
+  applyExperienceRules(null);
   terminal.dataset.open = 'false';
   crosshair.dataset.visible = 'false';
   statsHudEl.dataset.visible = 'false';
@@ -1454,6 +1473,8 @@ function updateMovement(dt) {
     const dx = p.x - levelEndPos.x, dz = p.z - levelEndPos.z;
     if (dx*dx + dz*dz < 2.5 * 2.5) _triggerLevelComplete();
   }
+
+  _checkRoomEntry();
 }
 
 // ─────────────────────────────────────────────
@@ -2445,6 +2466,7 @@ document.getElementById('substance-close-btn').addEventListener('click', closeSu
 
 function _triggerLevelComplete() {
   levelComplete = true;
+  emit(EVENTS.LEVEL_EXIT_REACHED, { seed: activeExperience?.level?.seed });
   if (controls.isLocked) controls.unlock();
   const notif = document.getElementById('levelup-notification');
   document.getElementById('levelup-sub').textContent = 'YOU REACHED THE EXIT';
@@ -2453,6 +2475,7 @@ function _triggerLevelComplete() {
     notif.dataset.visible = 'false';
     // Advance seed for next level
     if (activeExperience) {
+      unloadTriggers();
       const nextSeed = ((activeExperience.level?.seed ?? 42) + 1) & 0xFFFFFFFF;
       activeExperience = { ...activeExperience, level: { ...activeExperience.level, seed: nextSeed } };
       levelComplete = false;
@@ -2816,6 +2839,137 @@ document.getElementById('terra-save-btn').addEventListener('click', async () => 
     setStatus(document.getElementById('terra-status'), 'error', e.message);
   }
 });
+
+// ─────────────────────────────────────────────
+// ROOM ENTRY DETECTION
+// ─────────────────────────────────────────────
+
+let _lastRoomTile = null;
+function _checkRoomEntry() {
+  if (!currentLevel) return;
+  const p = roomCamera.position;
+  const gx = Math.round(p.x / TILE_SIZE + currentLevel.start.x);
+  const gz = Math.round(p.z / TILE_SIZE + currentLevel.start.y);
+  const key = `${gx},${gz}`;
+  if (key !== _lastRoomTile) {
+    _lastRoomTile = key;
+    emit(EVENTS.ROOM_ENTERED, { tileX: gx, tileZ: gz });
+  }
+}
+
+// ─────────────────────────────────────────────
+// THE UNDERCROFT
+// ─────────────────────────────────────────────
+
+const undercroftPanelEl = document.getElementById('undercroft-panel');
+let _ucMonitorHandler = null;
+
+function openUndercroftPanel() {
+  undercroftPanelEl.dataset.open = 'true';
+  _switchUcTab('registry');
+}
+function closeUndercroftPanel() {
+  undercroftPanelEl.dataset.open = 'false';
+  _detachMonitor();
+}
+
+function _detachMonitor() {
+  if (_ucMonitorHandler) {
+    off('*', _ucMonitorHandler);
+    _ucMonitorHandler = null;
+  }
+}
+
+function _switchUcTab(tab) {
+  undercroftPanelEl.querySelectorAll('.uc-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  undercroftPanelEl.querySelectorAll('.undercroft-pane').forEach(pane => {
+    pane.style.display = pane.id === `undercroft-${tab}` ? '' : 'none';
+  });
+  if (tab === 'registry')  _renderUndercroftRegistry();
+  if (tab === 'monitor')   _renderUndercroftMonitor();
+  if (tab === 'manifest')  _renderUndercroftManifest();
+}
+
+function _renderUndercroftRegistry() {
+  const pane = document.getElementById('undercroft-registry');
+  const state = snapshotState();
+  const rows = (entries, label) => {
+    const keys = Object.keys(entries);
+    if (!keys.length) return `<tr><td colspan="2" class="uc-empty">${label}: none</td></tr>`;
+    return keys.map(k => `<tr><td class="uc-key">${k}</td><td class="uc-val">${JSON.stringify(entries[k])}</td></tr>`).join('');
+  };
+  pane.innerHTML = `
+    <table class="uc-registry-table">
+      <thead><tr><th>KEY</th><th>VALUE</th></tr></thead>
+      <tbody>
+        <tr class="uc-section-row"><td colspan="2">— FLAGS —</td></tr>
+        ${rows(state.flags, 'flags')}
+        <tr class="uc-section-row"><td colspan="2">— COUNTERS —</td></tr>
+        ${rows(state.counters, 'counters')}
+        <tr class="uc-section-row"><td colspan="2">— ENTITY STATES —</td></tr>
+        ${rows(state.entityStates, 'entity states')}
+      </tbody>
+    </table>
+    <button class="uc-refresh-btn" id="uc-reg-refresh">↺ REFRESH</button>
+  `;
+  document.getElementById('uc-reg-refresh').addEventListener('click', _renderUndercroftRegistry);
+}
+
+function _renderUndercroftMonitor() {
+  const pane = document.getElementById('undercroft-monitor');
+  pane.innerHTML = `<div id="uc-event-log" class="uc-event-log"></div>
+    <button class="uc-refresh-btn" id="uc-monitor-clear">✕ CLEAR</button>`;
+  const log = document.getElementById('uc-event-log');
+
+  document.getElementById('uc-monitor-clear').addEventListener('click', () => { log.innerHTML = ''; });
+
+  // Remove previous handler if any
+  _detachMonitor();
+
+  _ucMonitorHandler = ({ event, payload }) => {
+    const line = document.createElement('div');
+    line.className = 'uc-log-line';
+    const ts = new Date().toTimeString().slice(0, 8);
+    line.textContent = `[${ts}] ${event}  ${JSON.stringify(payload)}`;
+    log.appendChild(line);
+    // Keep max 200 lines
+    while (log.children.length > 200) log.removeChild(log.firstChild);
+    log.scrollTop = log.scrollHeight;
+  };
+  on('*', _ucMonitorHandler);
+}
+
+function _renderUndercroftManifest() {
+  const pane = document.getElementById('undercroft-manifest');
+  const triggers = getLoadedTriggers();
+  if (!triggers.length) {
+    pane.innerHTML = `<p class="uc-empty">No triggers loaded. Launch an experience to see its trigger manifest.</p>`;
+    return;
+  }
+  const rows = triggers.map(t => `
+    <tr>
+      <td class="uc-key">${t.id ?? '—'}</td>
+      <td class="uc-val">${t.on ?? 'room:entered'}</td>
+      <td class="uc-val">${t.condition?.type ?? 'always'}</td>
+      <td class="uc-val">${(t.actions ?? []).map(a => a.type).join(', ') || '—'}</td>
+      <td class="uc-val">${t.once ? 'once' : 'repeating'}</td>
+    </tr>
+  `).join('');
+  pane.innerHTML = `
+    <table class="uc-registry-table">
+      <thead><tr><th>ID</th><th>EVENT</th><th>CONDITION</th><th>ACTIONS</th><th>FIRE</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+undercroftPanelEl.querySelectorAll('.uc-tab').forEach(btn => {
+  btn.addEventListener('click', () => _switchUcTab(btn.dataset.tab));
+});
+document.getElementById('undercroft-close-btn').addEventListener('click', closeUndercroftPanel);
+document.getElementById('hub-undercroft-card').addEventListener('click', openUndercroftPanel);
 
 // ─────────────────────────────────────────────
 // BOOT
