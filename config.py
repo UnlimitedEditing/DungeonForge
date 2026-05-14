@@ -67,6 +67,12 @@ DEFAULTS: dict[str, Any] = {
         "full body visible, centered, clean solid white background"
     ),
 
+    # --- pose reference slugs (ControlNet) ---
+    # Populated by POST /tools/pose/register. Keys are frame indices ("f0"…"f3"),
+    # values are the Graydient slug strings used in /image1:{slug} at render time.
+    "walk_pose_slugs": {},
+    "back_pose_slugs": {},
+
     # --- lore source ---
     # Free-text world description. Currently stored only.
     # Next layer: feed into an LLM-composer that derives prompt modifiers

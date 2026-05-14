@@ -119,6 +119,11 @@ class VariantRequest(BaseModel):
     profile_id: str
     prompt: Optional[str] = None   # if provided, overrides the template for this regen
 
+class PoseRegisterRequest(BaseModel):
+    profile_id: str
+    frame_type: str   # e.g. "walk_f0", "back_f2"
+    image_data: str   # base64 data URI of the rendered pose JPEG
+
 class Job(BaseModel):
     id: str
     profile_id: str
@@ -198,7 +203,13 @@ _load_snapshot()
 
 # ---------- helpers ----------
 
-def render_variant_frame(prompt: str, source_url: str, api_key: str, label: str) -> str:
+def render_variant_frame(
+    prompt: str,
+    source_url: str,
+    api_key: str,
+    label: str,
+    control_slug: Optional[str] = None,
+) -> str:
     """Render one frame via the edit workflow. Returns the Graydient image URL."""
     collected: dict = {"url": None}
 
@@ -216,6 +227,7 @@ def render_variant_frame(prompt: str, source_url: str, api_key: str, label: str)
         on_event=on_event,
         init_image=source_url,
         strength=float(config.get("variant_strength")),
+        control_slug=control_slug,
     )
     if not collected["url"]:
         raise RuntimeError("render stream closed with no URL")
@@ -364,13 +376,19 @@ def variant_worker():
                 log.info("[variant %s] walk sheet: %d frames (type=%s)",
                          var_id, frame_count, vj.variant_type)
 
+                slugs_key = "walk_pose_slugs" if vj.variant_type == "walk" else "back_pose_slugs"
+                pose_slugs = config.get(slugs_key) or {}
+
                 frame_paths: list[str] = []
                 for i, suffix in enumerate(suffixes):
                     frame_prompt = build_frame_prompt(suffix)
                     label = f"{var_id}/{vj.variant_type}/f{i}"
                     log.info("[variant %s] rendering frame %d/%d", var_id, i + 1, frame_count)
+                    control_slug = pose_slugs.get(f"f{i}")
 
-                    frame_url = render_variant_frame(frame_prompt, source_url, api_key, label)
+                    frame_url = render_variant_frame(
+                        frame_prompt, source_url, api_key, label, control_slug=control_slug
+                    )
 
                     with VARIANT_JOBS_LOCK:
                         vj.status = "processing"
@@ -566,6 +584,49 @@ def trigger_variant(sprite_job_id: str, variant_type: str, req: VariantRequest):
 
     log.info("[%s] variant %s re-queued as %s", sprite_job_id, variant_type, var_id)
     return vj
+
+# -- pose tools --
+
+@app.get("/tools/pose/slugs")
+def get_pose_slugs():
+    return {
+        "walk_pose_slugs": config.get("walk_pose_slugs") or {},
+        "back_pose_slugs": config.get("back_pose_slugs") or {},
+    }
+
+@app.post("/tools/pose/register")
+def register_pose(req: PoseRegisterRequest):
+    api_key = profiles.get_api_key(req.profile_id)
+    if not api_key:
+        raise HTTPException(401, "session expired — please log in again")
+
+    frame_type = req.frame_type.strip()   # e.g. "walk_f0" or "back_f2"
+    slug = f"df_{frame_type}"
+
+    # Persist the slug into config under the appropriate dict
+    if frame_type.startswith("back_"):
+        fi = frame_type[len("back_"):]   # "f0", "f1", …
+        slugs = dict(config.get("back_pose_slugs") or {})
+        slugs[fi] = slug
+        config.update({"back_pose_slugs": slugs})
+    else:
+        fi = frame_type[len("walk_"):]   # "f0", "f1", …
+        slugs = dict(config.get("walk_pose_slugs") or {})
+        slugs[fi] = slug
+        config.update({"walk_pose_slugs": slugs})
+
+    # Upload in background — fire and forget
+    def _upload():
+        try:
+            graydient_client.upload_control_image(req.image_data, slug, api_key)
+            log.info("pose reference uploaded: slug=%s frame=%s", slug, frame_type)
+        except Exception:
+            log.exception("pose reference upload failed: slug=%s", slug)
+
+    threading.Thread(target=_upload, daemon=True).start()
+
+    log.info("pose register: frame_type=%s slug=%s profile=%s", frame_type, slug, req.profile_id)
+    return {"slug": slug, "frame_type": frame_type}
 
 # -- static assets --
 

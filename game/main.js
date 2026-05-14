@@ -1108,6 +1108,334 @@ function pulsePlaceholders(now) {
 }
 
 // ─────────────────────────────────────────────
+// TOOLS + POSE EDITOR
+// ─────────────────────────────────────────────
+
+const toolsPanelEl       = document.getElementById('tools-panel');
+const poseEditorPanelEl  = document.getElementById('pose-editor-panel');
+const poseCanvas         = document.getElementById('pose-canvas');
+const poseFrameGrid      = document.getElementById('pose-frame-grid');
+const poseJointNameEl    = document.getElementById('pose-joint-name');
+const poseRotRow         = document.getElementById('pose-rot-row');
+const poseRotX           = document.getElementById('pose-rot-x');
+const poseRotXVal        = document.getElementById('pose-rot-x-val');
+const poseResetBtn       = document.getElementById('pose-reset-btn');
+const poseUploadBtn      = document.getElementById('pose-upload-btn');
+const poseStatusEl       = document.getElementById('pose-status');
+const poseRefsEl         = document.getElementById('pose-refs');
+
+document.getElementById('forge-tools-btn').addEventListener('click', openTools);
+document.getElementById('tools-close-btn').addEventListener('click', closeTools);
+document.getElementById('launch-pose-editor-btn').addEventListener('click', () => { closeTools(); openPoseEditor(); });
+document.getElementById('pose-back-btn').addEventListener('click', () => { closePoseEditor(); openTools(); });
+document.getElementById('pose-close-btn').addEventListener('click', closePoseEditor);
+
+function openTools()  { toolsPanelEl.dataset.open = 'true'; }
+function closeTools() { toolsPanelEl.dataset.open = 'false'; }
+
+// ── Pose editor Three.js state (dedicated renderer + scene) ──
+
+let poseRenderer = null;       // created lazily on first open
+let poseAnimId = null;
+let poseBuilt = false;
+
+const poseScene3  = new THREE.Scene();
+const poseCamera3 = new THREE.PerspectiveCamera(28, 260 / 380, 0.1, 20);
+poseCamera3.position.set(0, 1.0, 4.5);
+poseCamera3.lookAt(0, 0.9, 0);
+poseScene3.background = new THREE.Color(0xffffff);
+poseScene3.add(new THREE.AmbientLight(0xffffff, 0.9));
+const _poseDirLight = new THREE.DirectionalLight(0xffeedd, 0.6);
+_poseDirLight.position.set(1.5, 3, 3);
+poseScene3.add(_poseDirLight);
+
+let poseJoints      = {};   // name → Object3D pivot
+let poseJointMeshes = [];   // clickable spheres
+let selectedJoint   = null;
+let activeFrame     = 'walk_f0';
+let poseSlugs       = {};   // frameType → slug
+
+const POSE_FRAMES = [
+  'walk_f0','walk_f1','walk_f2','walk_f3',
+  'back_f0','back_f1','back_f2','back_f3',
+];
+
+const JOINT_DEFS = [
+  // [name, parent, [dx,dy,dz], boneLen]
+  ['root',       null,          [0,    0,     0],  0.18],
+  ['spine',      'root',        [0,    0.18,  0],  0.22],
+  ['chest',      'spine',       [0,    0.22,  0],  0.14],
+  ['neck',       'chest',       [0,    0.14,  0],  0.13],
+  ['head',       'neck',        [0,    0.13,  0],  0   ],
+  ['l_shoulder', 'chest',       [-0.20, 0.02, 0],  0.28],
+  ['r_shoulder', 'chest',       [ 0.20, 0.02, 0],  0.28],
+  ['l_elbow',    'l_shoulder',  [0,   -0.28,  0],  0.24],
+  ['r_elbow',    'r_shoulder',  [0,   -0.28,  0],  0.24],
+  ['l_wrist',    'l_elbow',     [0,   -0.24,  0],  0   ],
+  ['r_wrist',    'r_elbow',     [0,   -0.24,  0],  0   ],
+  ['l_hip',      'root',        [-0.10,-0.05, 0],  0.42],
+  ['r_hip',      'root',        [ 0.10,-0.05, 0],  0.42],
+  ['l_knee',     'l_hip',       [0,   -0.42,  0],  0.40],
+  ['r_knee',     'r_hip',       [0,   -0.42,  0],  0.40],
+  ['l_ankle',    'l_knee',      [0,   -0.40,  0],  0   ],
+  ['r_ankle',    'r_knee',      [0,   -0.40,  0],  0   ],
+];
+
+const ROTATABLE_JOINTS = new Set([
+  'spine','neck','l_shoulder','r_shoulder','l_elbow','r_elbow',
+  'l_hip','r_hip','l_knee','r_knee',
+]);
+
+const ROT_LIMITS = {
+  spine:      [-0.3,  0.4],
+  neck:       [-0.3,  0.3],
+  l_shoulder: [-1.0,  0.6],
+  r_shoulder: [-0.6,  1.0],
+  l_elbow:    [-2.4,  0.0],
+  r_elbow:    [-2.4,  0.0],
+  l_hip:      [-0.7,  0.5],
+  r_hip:      [-0.5,  0.7],
+  l_knee:     [ 0.0,  1.5],
+  r_knee:     [ 0.0,  1.5],
+};
+
+const POSE_PRESETS = {
+  walk_f0: { spine:{x:0.05}, l_hip:{x:-0.55}, r_hip:{x:0.40}, l_knee:{x:0.08}, r_knee:{x:0.45}, l_shoulder:{x:0.40}, r_shoulder:{x:-0.50}, l_elbow:{x:-0.45}, r_elbow:{x:-0.55} },
+  walk_f1: { spine:{x:0.02}, l_hip:{x:-0.08}, r_hip:{x:0.05}, l_knee:{x:0.28}, r_knee:{x:0.70}, l_shoulder:{x:0.12}, r_shoulder:{x:-0.15}, l_elbow:{x:-0.32}, r_elbow:{x:-0.38} },
+  walk_f2: { spine:{x:0.05}, l_hip:{x:0.40},  r_hip:{x:-0.55},l_knee:{x:0.45}, r_knee:{x:0.08}, l_shoulder:{x:-0.50},r_shoulder:{x:0.40},  l_elbow:{x:-0.55}, r_elbow:{x:-0.45} },
+  walk_f3: { spine:{x:0.02}, l_hip:{x:0.05},  r_hip:{x:-0.08},l_knee:{x:0.70}, r_knee:{x:0.28}, l_shoulder:{x:-0.15},r_shoulder:{x:0.12},  l_elbow:{x:-0.38}, r_elbow:{x:-0.32} },
+};
+['f0','f1','f2','f3'].forEach(f => { POSE_PRESETS[`back_${f}`] = { ...POSE_PRESETS[`walk_${f}`] }; });
+
+function buildMannequin() {
+  poseJoints = {};
+  poseJointMeshes = [];
+  const boneMat  = new THREE.MeshLambertMaterial({ color: 0x7a5c28 });
+  const jointMat = new THREE.MeshLambertMaterial({ color: 0xd4a843 });
+
+  for (const [name, parent, offset, boneLen] of JOINT_DEFS) {
+    const pivot = new THREE.Object3D();
+    pivot.position.set(...offset);
+
+    const isHead = name === 'head';
+    const sphere = new THREE.Mesh(
+      new THREE.SphereGeometry(isHead ? 0.105 : 0.044, 10, 7),
+      jointMat.clone()
+    );
+    sphere.userData.jointName = name;
+    pivot.add(sphere);
+    if (ROTATABLE_JOINTS.has(name)) poseJointMeshes.push(sphere);
+
+    if (boneLen > 0) {
+      const boneGeo = new THREE.CylinderGeometry(0.024, 0.024, boneLen, 6);
+      boneGeo.translate(0, -boneLen / 2, 0);
+      pivot.add(new THREE.Mesh(boneGeo, boneMat));
+    }
+
+    poseJoints[name] = pivot;
+    if (parent) {
+      poseJoints[parent].add(pivot);
+    } else {
+      pivot.position.set(0, 0.85, 0);
+      poseScene3.add(pivot);
+    }
+  }
+
+  // Ground plane
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({ color: 0xeeeee8 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  poseScene3.add(ground);
+}
+
+function applyPreset(frameType) {
+  const preset = POSE_PRESETS[frameType] ?? POSE_PRESETS['walk_f0'];
+  for (const [name] of JOINT_DEFS) {
+    const j = poseJoints[name];
+    if (!j) continue;
+    const r = preset[name];
+    j.rotation.x = r?.x ?? 0;
+    if (name === 'root') j.rotation.y = frameType.startsWith('back') ? Math.PI : 0;
+  }
+}
+
+function setSelectedJoint(name) {
+  if (selectedJoint) {
+    const prev = poseJoints[selectedJoint];
+    if (prev) prev.children[0].material.color.set(0xd4a843);
+  }
+  selectedJoint = name;
+  if (!name) {
+    poseJointNameEl.textContent = '—';
+    poseRotRow.style.display = 'none';
+    return;
+  }
+  const j = poseJoints[name];
+  if (j) j.children[0].material.color.set(0xff6030);
+  poseJointNameEl.textContent = name.replace('_', ' ');
+  poseRotRow.style.display = '';
+  const deg = Math.round(THREE.MathUtils.radToDeg(j.rotation.x));
+  poseRotX.value = deg;
+  poseRotXVal.textContent = `${deg}°`;
+}
+
+poseRotX.addEventListener('input', () => {
+  if (!selectedJoint) return;
+  const rad = THREE.MathUtils.degToRad(Number(poseRotX.value));
+  poseJoints[selectedJoint].rotation.x = rad;
+  poseRotXVal.textContent = `${poseRotX.value}°`;
+});
+
+// Drag rotation on canvas
+const _poseRay  = new THREE.Raycaster();
+const _poseMouse = new THREE.Vector2();
+let _poseDragY = 0;
+
+poseCanvas.addEventListener('mousedown', (e) => {
+  const rect = poseCanvas.getBoundingClientRect();
+  _poseMouse.set(
+    ((e.clientX - rect.left)  / poseCanvas.width)  * 2 - 1,
+    -((e.clientY - rect.top) / poseCanvas.height) * 2 + 1
+  );
+  _poseRay.setFromCamera(_poseMouse, poseCamera3);
+  const hits = _poseRay.intersectObjects(poseJointMeshes);
+  if (hits.length) {
+    setSelectedJoint(hits[0].object.userData.jointName);
+    _poseDragY = e.clientY;
+    e.preventDefault();
+  }
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!selectedJoint || poseEditorPanelEl.dataset.open !== 'true') return;
+  if (e.buttons !== 1) return;
+  const delta = (e.clientY - _poseDragY) * 0.015;
+  _poseDragY = e.clientY;
+  const j = poseJoints[selectedJoint];
+  const [min, max] = ROT_LIMITS[selectedJoint] ?? [-Math.PI, Math.PI];
+  j.rotation.x = Math.max(min, Math.min(max, j.rotation.x - delta));
+  const deg = Math.round(THREE.MathUtils.radToDeg(j.rotation.x));
+  poseRotX.value = deg;
+  poseRotXVal.textContent = `${deg}°`;
+});
+
+poseResetBtn.addEventListener('click', () => { applyPreset(activeFrame); setSelectedJoint(null); });
+
+// ── Frame button grid ──
+
+function buildFrameGrid() {
+  poseFrameGrid.innerHTML = '';
+  for (const ft of POSE_FRAMES) {
+    const btn = document.createElement('button');
+    btn.className = 'pose-frame-btn';
+    btn.dataset.frame = ft;
+    btn.textContent = ft.replace('_f', ' f').toUpperCase();
+    btn.addEventListener('click', () => {
+      activeFrame = ft;
+      applyPreset(ft);
+      setSelectedJoint(null);
+      refreshFrameGrid();
+    });
+    poseFrameGrid.appendChild(btn);
+  }
+  refreshFrameGrid();
+}
+
+function refreshFrameGrid() {
+  poseFrameGrid.querySelectorAll('.pose-frame-btn').forEach(btn => {
+    btn.dataset.active   = btn.dataset.frame === activeFrame ? 'true' : 'false';
+    btn.dataset.hasRef   = poseSlugs[btn.dataset.frame] ? 'true' : 'false';
+  });
+  refreshPoseRefs();
+}
+
+function refreshPoseRefs() {
+  poseRefsEl.innerHTML = '';
+  let any = false;
+  for (const ft of POSE_FRAMES) {
+    if (!poseSlugs[ft]) continue;
+    any = true;
+    const row = document.createElement('div');
+    row.className = 'pose-ref-item';
+    row.innerHTML = `<span>${ft}</span><span>${poseSlugs[ft]}</span>`;
+    poseRefsEl.appendChild(row);
+  }
+  if (!any) poseRefsEl.innerHTML = '<div class="muted" style="font-family:VT323,monospace;font-size:15px">none uploaded yet</div>';
+}
+
+async function loadPoseSlugs() {
+  try {
+    const res = await fetch(`${FORGE_BASE}/tools/pose/slugs`);
+    if (!res.ok) return;
+    const data = await res.json();
+    poseSlugs = {};
+    for (const [fi, slug] of Object.entries(data.walk_pose_slugs ?? {})) poseSlugs[`walk_${fi}`] = slug;
+    for (const [fi, slug] of Object.entries(data.back_pose_slugs ?? {})) poseSlugs[`back_${fi}`] = slug;
+    refreshFrameGrid();
+  } catch { /* ignore */ }
+}
+
+poseUploadBtn.addEventListener('click', async () => {
+  if (!profileId) return;
+  poseUploadBtn.disabled = true;
+  setStatus(poseStatusEl, 'uploading', 'uploading…');
+  try {
+    // Render current pose to JPEG data URI
+    poseRenderer.render(poseScene3, poseCamera3);
+    const imageData = poseCanvas.toDataURL('image/jpeg', 0.92);
+
+    const res = await fetch(`${FORGE_BASE}/tools/pose/register`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile_id: profileId, frame_type: activeFrame, image_data: imageData }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    poseSlugs[activeFrame] = data.slug;
+    refreshFrameGrid();
+    setStatus(poseStatusEl, 'done', `registered: ${data.slug}`);
+    setTimeout(() => { poseStatusEl.dataset.state = 'idle'; poseStatusEl.textContent = ''; }, 3000);
+  } catch (e) {
+    setStatus(poseStatusEl, 'error', `failed: ${e.message}`);
+  } finally {
+    poseUploadBtn.disabled = false;
+  }
+});
+
+// ── Panel open / close ──
+
+function openPoseEditor() {
+  poseEditorPanelEl.dataset.open = 'true';
+  if (!poseBuilt) {
+    // Lazy-init renderer
+    poseRenderer = new THREE.WebGLRenderer({ canvas: poseCanvas, antialias: true });
+    poseRenderer.setPixelRatio(1);
+    poseRenderer.setSize(260, 380);
+    buildMannequin();
+    buildFrameGrid();
+    applyPreset(activeFrame);
+    poseBuilt = true;
+  }
+  loadPoseSlugs();
+  startPoseLoop();
+}
+
+function closePoseEditor() {
+  poseEditorPanelEl.dataset.open = 'false';
+  stopPoseLoop();
+  setSelectedJoint(null);
+}
+
+function startPoseLoop() { if (!poseAnimId) poseStep(); }
+function stopPoseLoop()  { if (poseAnimId) { cancelAnimationFrame(poseAnimId); poseAnimId = null; } }
+
+function poseStep() {
+  poseAnimId = requestAnimationFrame(poseStep);
+  poseRenderer.render(poseScene3, poseCamera3);
+}
+
+// ─────────────────────────────────────────────
 // MAIN LOOP
 // ─────────────────────────────────────────────
 

@@ -59,6 +59,7 @@ def render_create(
     init_image: Optional[str] = None,
     seed: Optional[int] = None,
     strength: Optional[float] = None,
+    control_slug: Optional[str] = None,
 ) -> None:
     """
     Submit a workflow render and stream progress events back.
@@ -69,12 +70,17 @@ def render_create(
 
     strength: denoise strength for img2img workflows (0.0–1.0). Only valid for
     edit/remix/img2img workflows — do not pass for txt2img renders.
+
+    control_slug: optional ControlNet reference slug — appends /image1:{slug}
+    to the options string when provided.
     """
     options_parts = [f"/run:{workflow}"]
     if seed is not None:
         options_parts.append(f"/seed:{seed}")
     if strength is not None:
         options_parts.append(f"/strength:{strength:.2f}")
+    if control_slug is not None:
+        options_parts.append(f"/image1:{control_slug}")
 
     body = {
         "options": " ".join(options_parts),
@@ -107,6 +113,44 @@ def render_create(
             continue
         log.debug("sse event keys=%s", list(payload.keys()))
         on_event(payload)
+
+
+def upload_control_image(image_data: str, slug: str, api_key: str) -> None:
+    """
+    Upload a pose/control image to Graydient as a named ControlNet reference.
+
+    image_data: base64 data URI (e.g. data:image/jpeg;base64,...)
+    slug: the name to register the control image under (e.g. "df_walk_f0")
+
+    Uses the zimage workflow with /control /new:{slug} options.
+    SSE events are consumed and discarded — only the upload matters.
+    """
+    options_parts = ["/run:zimage", "/control", f"/new:{slug}"]
+    body = {
+        "options": " ".join(options_parts),
+        "placeholders": {},
+        "metadata_fields": {},
+        "prompt": "",
+        "task": "workflow",
+        "progressive_return": True,
+        "stream": True,
+        "init_image": image_data,
+    }
+
+    log.info("upload_control_image slug=%s", slug)
+    resp = requests.post(
+        _url("render"),
+        headers=_headers(api_key, stream=True),
+        json=body,
+        stream=True,
+        timeout=120,
+    )
+    resp.raise_for_status()
+
+    # Drain the SSE stream so the server finalises the upload
+    client = sseclient.SSEClient(resp)
+    for event in client.events():
+        log.debug("upload_control_image sse: %.120s", event.data)
 
 
 def render_info(render_hash: str, api_key: str) -> dict:

@@ -109,6 +109,65 @@
           <button class="forge-action-btn" id="forge-lore-btn">LORE BOOK</button>
           <button class="forge-action-btn" id="forge-config-btn">CONFIG</button>
           <button class="forge-action-btn" id="forge-bestiary-btn">BESTIARY</button>
+          <button class="forge-action-btn" id="forge-tools-btn">TOOLS</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tools panel: accessible from the Forge hub. -->
+  <div id="tools-panel" data-open="false">
+    <div class="tools-frame">
+      <div class="tools-header">
+        <span class="tools-title">// TOOLS</span>
+        <button class="tools-close-btn" id="tools-close-btn">✕ CLOSE</button>
+      </div>
+      <div class="tools-body">
+        <div class="tool-card" id="tool-pose-editor">
+          <div class="tool-card-name">POSE EDITOR</div>
+          <div class="tool-card-desc">Stage and upload pose reference images to guide walk cycle generation via ControlNet.</div>
+          <button class="tool-launch-btn" id="launch-pose-editor-btn">LAUNCH →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pose editor panel: accessible from the Tools panel. -->
+  <div id="pose-editor-panel" data-open="false">
+    <div class="pose-frame">
+      <div class="pose-header">
+        <span class="pose-title">// POSE EDITOR</span>
+        <button class="pose-nav-btn" id="pose-back-btn">← TOOLS</button>
+        <button class="pose-nav-btn" id="pose-close-btn">✕ CLOSE</button>
+      </div>
+      <div class="pose-body">
+        <div class="pose-viewport-wrap">
+          <canvas id="pose-canvas" width="260" height="380"></canvas>
+          <div class="pose-hint" id="pose-hint">click joint · drag to rotate</div>
+        </div>
+        <div class="pose-sidebar">
+          <div class="pose-section">
+            <div class="pose-section-label">// frame</div>
+            <div class="pose-frame-grid" id="pose-frame-grid"></div>
+          </div>
+          <div class="pose-section">
+            <div class="pose-section-label">// joint  <span id="pose-joint-name" class="pose-joint-name">—</span></div>
+            <div class="pose-rot-row" id="pose-rot-row" style="display:none">
+              <label class="pose-rot-label">X</label>
+              <input type="range" id="pose-rot-x" class="pose-rot-slider" min="-180" max="180" value="0" />
+              <span id="pose-rot-x-val" class="pose-rot-val">0°</span>
+            </div>
+          </div>
+          <div class="pose-section">
+            <div class="pose-section-label">// actions</div>
+            <button id="pose-reset-btn" class="pose-btn">RESET TO DEFAULT</button>
+            <button id="pose-upload-btn" class="pose-btn pose-btn-primary">UPLOAD REFERENCE</button>
+            <div id="pose-status" class="pose-status" data-state="idle"></div>
+          </div>
+          <div class="pose-section">
+            <div class="pose-section-label">// registered refs</div>
+            <div id="pose-refs" class="pose-refs"></div>
+          </div>
         </div>
       </div>
     </div>
