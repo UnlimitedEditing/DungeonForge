@@ -770,6 +770,123 @@ def register_pose(req: PoseRegisterRequest):
     log.info("pose register: frame_type=%s slug=%s profile=%s", frame_type, slug, req.profile_id)
     return {"slug": slug, "frame_type": frame_type}
 
+# -- experiences --
+
+_EXPERIENCES_PATH = os.path.join(os.path.dirname(__file__), "experiences.json")
+_EXP_LOCK = threading.Lock()
+
+_SYSTEM_EXPERIENCES = [
+    {
+        "id": "latentcrawl",
+        "name": "LatentCrawl",
+        "description": "Roguelike dungeon crawler. Fight your way through procedurally generated halls to reach the exit. How deep can you go?",
+        "version": "0.1.0",
+        "baseId": None,
+        "author": "system",
+        "locked": True,
+        "mode": "roguelike",
+        "level": {"seed": 42, "roomCount": 18, "gridSize": 12, "tileset": "dungeon-stone"},
+        "world": {"skyboxPrompt": "underground cavern ancient dungeon atmospheric dark fantasy", "ambientColor": "0x3a2818", "fogColor": "0x000000", "fogNear": 6, "fogFar": 25},
+        "entities": {"enemiesPerRoom": 2, "bossRoom": True, "spawnPool": []},
+        "rules": {"playerSpeed": 4.5, "playerHp": 100, "friendlyFire": False},
+        "lore": {"title": "The Dungeon Beneath", "description": "Ancient halls, forgotten horrors."},
+    }
+]
+
+def _load_experiences() -> list:
+    try:
+        with open(_EXPERIENCES_PATH, "r") as f:
+            stored = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        stored = []
+    # Merge: system experiences always present, user forks from file
+    sys_ids = {e["id"] for e in _SYSTEM_EXPERIENCES}
+    user_exps = [e for e in stored if e.get("id") not in sys_ids]
+    return _SYSTEM_EXPERIENCES + user_exps
+
+def _save_experiences(exps: list) -> None:
+    # Only persist non-system experiences
+    user_exps = [e for e in exps if not e.get("locked")]
+    with open(_EXPERIENCES_PATH, "w") as f:
+        json.dump(user_exps, f, indent=2)
+
+@app.get("/experiences")
+def list_experiences():
+    with _EXP_LOCK:
+        return _load_experiences()
+
+@app.get("/experiences/{exp_id}")
+def get_experience(exp_id: str):
+    with _EXP_LOCK:
+        for e in _load_experiences():
+            if e["id"] == exp_id:
+                return e
+    raise HTTPException(404, "experience not found")
+
+@app.post("/experiences")
+def create_experience(body: dict):
+    if not body.get("id"):
+        raise HTTPException(400, "id is required")
+    with _EXP_LOCK:
+        exps = _load_experiences()
+        ids = {e["id"] for e in exps}
+        if body["id"] in ids:
+            raise HTTPException(409, "id already exists")
+        exps.append(body)
+        _save_experiences(exps)
+    return body
+
+@app.put("/experiences/{exp_id}")
+def update_experience(exp_id: str, body: dict):
+    with _EXP_LOCK:
+        exps = _load_experiences()
+        for i, e in enumerate(exps):
+            if e["id"] == exp_id:
+                if e.get("locked"):
+                    raise HTTPException(403, "system experience is locked — fork it first")
+                exps[i] = {**e, **body, "id": exp_id}
+                _save_experiences(exps)
+                return exps[i]
+    raise HTTPException(404, "experience not found")
+
+@app.get("/experiences/{exp_id}/base")
+def get_base_experience(exp_id: str):
+    with _EXP_LOCK:
+        exps = _load_experiences()
+        exp_map = {e["id"]: e for e in exps}
+        cur = exp_map.get(exp_id)
+        if not cur:
+            raise HTTPException(404, "experience not found")
+        while cur.get("baseId") and cur["baseId"] in exp_map:
+            cur = exp_map[cur["baseId"]]
+        return cur
+
+@app.get("/experiences/{exp_id}/code")
+def get_experience_code(exp_id: str):
+    import base64
+    exp = get_experience(exp_id)
+    code = "EXP:" + base64.b64encode(json.dumps(exp).encode()).decode()
+    return {"code": code}
+
+@app.post("/experiences/import")
+def import_experience(body: dict):
+    import base64
+    code = body.get("code", "")
+    if not code.startswith("EXP:"):
+        raise HTTPException(400, "invalid share code")
+    try:
+        exp = json.loads(base64.b64decode(code[4:]).decode())
+    except Exception:
+        raise HTTPException(400, "could not decode share code")
+    exp["id"] = str(uuid.uuid4())
+    exp["locked"] = False
+    exp["author"] = "player"
+    with _EXP_LOCK:
+        exps = _load_experiences()
+        exps.append(exp)
+        _save_experiences(exps)
+    return exp
+
 # -- static assets --
 
 @app.get("/sprites/{name}")

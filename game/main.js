@@ -14,6 +14,14 @@
 
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+import {
+  generateLevel, buildLevelGeometry, buildLevelLights,
+  isWalkable, getSpawnPoints, tileToWorld, TILE_SIZE, WALL_H,
+} from './level.js';
+import {
+  fetchExperiences, fetchExperience, createFork, saveExperience,
+  encodeShareCode, decodeShareCode, importFromCode, DEFAULT_EXPERIENCES,
+} from './experiences.js';
 
 // ─────────────────────────────────────────────
 // CONSTANTS
@@ -113,7 +121,18 @@ function nextSpawn() {
   spawnIndex++;
   return new THREE.Vector3(x, 0, z);
 }
-function randomRoamTarget() {
+function randomRoamTarget(originX = 0, originZ = 0) {
+  // If a level is active, pick a random walkable point near the entity's current tile
+  if (currentLevel) {
+    const spread = TILE_SIZE * 0.45;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const tx = originX + (Math.random() * 2 - 1) * spread;
+      const tz = originZ + (Math.random() * 2 - 1) * spread;
+      if (isWalkable(tx, tz, currentLevel)) return new THREE.Vector3(tx, 0, tz);
+    }
+    // Fallback: stay near origin
+    return new THREE.Vector3(originX, 0, originZ);
+  }
   return new THREE.Vector3(
     (Math.random() * 2 - 1) * ROAM_BOUND,
     0,
@@ -126,6 +145,14 @@ function randomRoamTarget() {
 // ─────────────────────────────────────────────
 
 let appMode = 'forge'; // 'forge' | 'room'
+
+// Active experience + level state
+let activeExperience  = null;   // the experience JSON currently loaded
+let currentLevel      = null;   // generated level data
+let levelGroup        = null;   // THREE.Group of level geometry (added to roomScene)
+let levelLights       = [];     // PointLights added to roomScene for the level
+let levelEndPos       = null;   // {x,z} world position of the exit pillar
+let levelComplete     = false;
 
 const forgeHubEl = document.getElementById('forge-hub');
 const terminal   = document.getElementById('terminal');
@@ -140,15 +167,75 @@ function hideForgeHub() {
   forgeHubEl.dataset.active = 'false';
 }
 
-async function enterRoom() {
+function enterRoom() {
+  // Now opens experience picker instead of going straight to the room.
+  openPickerPanel();
+}
+
+async function launchExperience(exp) {
+  activeExperience = exp;
   appMode = 'room';
+  closePickerPanel();
   hideForgeHub();
   closeLibraryPanel();
   terminal.dataset.open = 'true';
   crosshair.dataset.visible = 'false';
   statsHudEl.dataset.visible = 'true';
-  updatePlayerHud();
+  document.getElementById('minimap').dataset.visible = 'true';
+  levelComplete = false;
   await applyGameConfig();
+  _buildLevel(exp);
+  updatePlayerHud();
+}
+
+function _buildLevel(exp) {
+  // Tear down previous level geometry and lights
+  if (levelGroup) { roomScene.remove(levelGroup); levelGroup = null; }
+  levelLights.forEach(l => roomScene.remove(l));
+  levelLights = [];
+
+  const lvlCfg = exp.level || {};
+  const seed      = (lvlCfg.seed      ?? 42) >>> 0;
+  const roomCount = lvlCfg.roomCount  ?? 18;
+  const gridSize  = lvlCfg.gridSize   ?? 12;
+
+  currentLevel  = generateLevel(seed, roomCount, gridSize);
+  levelGroup    = buildLevelGeometry(currentLevel);
+  levelEndPos   = levelGroup.userData.endWorldPos ?? null;
+  levelLights   = buildLevelLights(currentLevel);
+
+  roomScene.add(levelGroup);
+  levelLights.forEach(l => roomScene.add(l));
+
+  // Apply world config from experience
+  const world = exp.world || {};
+  roomScene.fog = new THREE.Fog(
+    parseInt(world.fogColor ?? '0x000000'),
+    world.fogNear ?? 6,
+    world.fogFar  ?? 25,
+  );
+
+  // Place player at start tile centre
+  const startW = tileToWorld(currentLevel.start.x, currentLevel.start.y, currentLevel);
+  const p = controls.object.position;
+  p.set(startW.x, WALL_H * 0.378, startW.z); // PLAYER_EYE
+  _yaw = 0; _pitch = 0;
+  roomCamera.quaternion.setFromEuler(new THREE.Euler(0, 0, 0, 'YXZ'));
+
+  // Spawn entities from level spawn points
+  _spawnLevelEntities(exp);
+}
+
+function _spawnLevelEntities(exp) {
+  // Clear existing sprites
+  for (const [, entry] of sprites) {
+    if (entry.mesh) roomScene.remove(entry.mesh);
+  }
+  sprites.clear();
+  // Spawn points from level — entities come from existing sprite jobs
+  // This seeds roaming positions for already-spawned sprites.
+  // New entities will still be spawned via the terminal as before.
+  // (Future: auto-populate enemies from entity pool here.)
 }
 
 function returnToForge() {
@@ -157,6 +244,7 @@ function returnToForge() {
   terminal.dataset.open = 'false';
   crosshair.dataset.visible = 'false';
   statsHudEl.dataset.visible = 'false';
+  document.getElementById('minimap').dataset.visible = 'false';
   showForgeHub();
 }
 
@@ -982,6 +1070,13 @@ document.getElementById('hub-library-card').addEventListener('click', openLibrar
 document.getElementById('hub-machinarium-card').addEventListener('click', openMachinariumPanel);
 document.getElementById('hub-arcanum-card').addEventListener('click', openArcanumPanel);
 document.getElementById('hub-substance-card').addEventListener('click', openSubstancePanel);
+document.getElementById('hub-terra-card').addEventListener('click', () => {
+  if (!activeExperience) {
+    openPickerPanel(); // must select an experience first
+  } else {
+    openTerraPanel();
+  }
+});
 
 // ─────────────────────────────────────────────
 // LIBRARY PANEL
@@ -1249,44 +1344,14 @@ roomScene.fog = new THREE.Fog(0x000000, 6, 22);
 const roomCamera = new THREE.PerspectiveCamera(78, window.innerWidth / window.innerHeight, 0.05, 200);
 roomCamera.position.set(0, PLAYER_EYE, 6);
 
-roomScene.add(new THREE.AmbientLight(0x3a2818, 0.55));
-const brazier = new THREE.PointLight(0xff8030, 2.2, 18, 1.6);
+// Persistent room-scene lights (level geometry and tile lights added dynamically by _buildLevel)
+roomScene.add(new THREE.AmbientLight(0x3a2818, 0.4));
+const torch = new THREE.PointLight(0xffb060, 2.0, 13, 1.5);
+roomScene.add(torch);
+// Fallback brazier at origin — overridden per-room by level lights
+const brazier = new THREE.PointLight(0xff8030, 1.0, 18, 1.8);
 brazier.position.set(0, 2.5, 0);
 roomScene.add(brazier);
-const torch = new THREE.PointLight(0xffb060, 2.2, 13, 1.5);
-roomScene.add(torch);
-// Dim corner fill so walls and far sprites are always readable
-const cornerFill = new THREE.PointLight(0xff6010, 0.5, 14, 2.0);
-cornerFill.position.set(-6, 2.0, -6);
-roomScene.add(cornerFill);
-
-const floorMat   = new THREE.MeshStandardMaterial({ color: 0x3a2820, roughness: 0.95, metalness: 0.0 });
-const ceilingMat = new THREE.MeshStandardMaterial({ color: 0x1a1208, roughness: 1 });
-const wallMat    = new THREE.MeshStandardMaterial({ color: 0x4a3a2a, roughness: 0.95 });
-
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_SIZE, ROOM_SIZE), floorMat);
-floor.rotation.x = -Math.PI / 2;
-roomScene.add(floor);
-
-const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_SIZE, ROOM_SIZE), ceilingMat);
-ceiling.rotation.x = Math.PI / 2;
-ceiling.position.y = WALL_HEIGHT;
-roomScene.add(ceiling);
-
-function addWall(x, z, rotY) {
-  const w = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_SIZE, WALL_HEIGHT), wallMat);
-  w.position.set(x, WALL_HEIGHT / 2, z); w.rotation.y = rotY;
-  roomScene.add(w);
-}
-addWall(0, -ROOM_SIZE/2, 0); addWall(0, ROOM_SIZE/2, Math.PI);
-addWall(-ROOM_SIZE/2, 0, Math.PI/2); addWall(ROOM_SIZE/2, 0, -Math.PI/2);
-
-const dais = new THREE.Mesh(
-  new THREE.CylinderGeometry(1.2, 1.4, 0.4, 12),
-  new THREE.MeshStandardMaterial({ color: 0x2a1a10, roughness: 1 }),
-);
-dais.position.set(0, 0.2, 0);
-roomScene.add(dais);
 
 // ─────────────────────────────────────────────
 // CONTROLS  (room only)
@@ -1367,14 +1432,28 @@ function updateMovement(dt) {
   velocity.z -= velocity.z * FRICTION * dt;
   velocity.x += moveDir.x * MOVE_SPEED * FRICTION * dt;
   velocity.z += moveDir.z * MOVE_SPEED * FRICTION * dt;
+  const p = controls.object.position;
+  const prevX = p.x, prevZ = p.z;
   controls.moveRight(velocity.x * dt);
   controls.moveForward(velocity.z * dt);
-  const half = ROOM_SIZE / 2 - 0.4;
-  const p = controls.object.position;
-  p.x = Math.max(-half, Math.min(half, p.x));
-  p.z = Math.max(-half, Math.min(half, p.z));
+
+  if (currentLevel && !isWalkable(p.x, p.z, currentLevel)) {
+    // Try sliding along each axis independently before fully blocking
+    if (!isWalkable(p.x, prevZ, currentLevel)) p.x = prevX;
+    if (!isWalkable(prevX, p.z, currentLevel)) p.z = prevZ;
+    // If both axes blocked, restore both (corner case)
+    if (!isWalkable(p.x, p.z, currentLevel)) { p.x = prevX; p.z = prevZ; }
+    velocity.x *= 0.1; velocity.z *= 0.1;
+  }
+
   p.y = PLAYER_EYE;
   torch.position.set(p.x, p.y + 0.2, p.z);
+
+  // Check end-room proximity
+  if (currentLevel && levelEndPos && !levelComplete) {
+    const dx = p.x - levelEndPos.x, dz = p.z - levelEndPos.z;
+    if (dx*dx + dz*dz < 2.5 * 2.5) _triggerLevelComplete();
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -1572,7 +1651,7 @@ function updateEntities(dt) {
         const dist = Math.sqrt(dx * dx + dz * dz);
         if (dist < ROAM_ARRIVE_D) {
           e.roam.waitUntil = now + ROAM_PAUSE_MIN + Math.random() * (ROAM_PAUSE_MAX - ROAM_PAUSE_MIN);
-          e.roam.target    = randomRoamTarget();
+          e.roam.target    = randomRoamTarget(pos.x, pos.z);
         } else {
           dirX = dx / dist; dirZ = dz / dist;
           pos.x += dirX * e.roam.speed * dt;
@@ -2361,6 +2440,92 @@ document.getElementById('sub-forge-btn').addEventListener('click', async () => {
 document.getElementById('substance-close-btn').addEventListener('click', closeSubstancePanel);
 
 // ─────────────────────────────────────────────
+// LEVEL COMPLETE
+// ─────────────────────────────────────────────
+
+function _triggerLevelComplete() {
+  levelComplete = true;
+  if (controls.isLocked) controls.unlock();
+  const notif = document.getElementById('levelup-notification');
+  document.getElementById('levelup-sub').textContent = 'YOU REACHED THE EXIT';
+  notif.dataset.visible = 'true';
+  setTimeout(() => {
+    notif.dataset.visible = 'false';
+    // Advance seed for next level
+    if (activeExperience) {
+      const nextSeed = ((activeExperience.level?.seed ?? 42) + 1) & 0xFFFFFFFF;
+      activeExperience = { ...activeExperience, level: { ...activeExperience.level, seed: nextSeed } };
+      levelComplete = false;
+      _buildLevel(activeExperience);
+      setTimeout(() => controls.lock(), 400);
+    }
+  }, 3200);
+}
+
+// ─────────────────────────────────────────────
+// MINIMAP
+// ─────────────────────────────────────────────
+
+const minimapCanvas = document.getElementById('minimap-canvas');
+const mmCtx = minimapCanvas.getContext('2d');
+const MM_SIZE = 160;
+const MM_PAD  = 12;
+
+function drawMinimap() {
+  if (!currentLevel) return;
+  mmCtx.clearRect(0, 0, MM_SIZE, MM_SIZE);
+
+  const tiles = currentLevel.tiles;
+  // Compute level bounding box in grid coords
+  let minGX = Infinity, maxGX = -Infinity, minGY = Infinity, maxGY = -Infinity;
+  for (const t of tiles) {
+    if (t.x < minGX) minGX = t.x; if (t.x > maxGX) maxGX = t.x;
+    if (t.y < minGY) minGY = t.y; if (t.y > maxGY) maxGY = t.y;
+  }
+  const gW = maxGX - minGX + 1, gH = maxGY - minGY + 1;
+  const cellPx = Math.min((MM_SIZE - MM_PAD*2) / gW, (MM_SIZE - MM_PAD*2) / gH);
+  const offX = MM_PAD + ((MM_SIZE - MM_PAD*2) - gW * cellPx) / 2;
+  const offY = MM_PAD + ((MM_SIZE - MM_PAD*2) - gH * cellPx) / 2;
+
+  const toScreen = (gx, gy) => ({
+    sx: offX + (gx - minGX) * cellPx,
+    sy: offY + (gy - minGY) * cellPx,
+  });
+
+  for (const t of tiles) {
+    const { sx, sy } = toScreen(t.x, t.y);
+    const pad = 1;
+    if (t.type === 'start')       mmCtx.fillStyle = 'rgba(255,160,64,0.7)';
+    else if (t.type === 'end')    mmCtx.fillStyle = 'rgba(148,64,255,0.7)';
+    else                          mmCtx.fillStyle = 'rgba(180,130,60,0.35)';
+    mmCtx.fillRect(sx + pad, sy + pad, cellPx - pad*2, cellPx - pad*2);
+
+    // Draw doorway connectors
+    mmCtx.fillStyle = 'rgba(180,130,60,0.5)';
+    const DIRS_MM = { n:[0,-1], s:[0,1], e:[1,0], w:[-1,0] };
+    for (const dir of t.connections) {
+      const [dx, dy] = DIRS_MM[dir];
+      const cx2 = sx + cellPx/2 + dx*cellPx/2 - 2;
+      const cy2 = sy + cellPx/2 + dy*cellPx/2 - 2;
+      mmCtx.fillRect(cx2, cy2, 4, 4);
+    }
+  }
+
+  // Player dot — world pos → fractional grid coords → screen
+  if (controls?.object) {
+    const pp = controls.object.position;
+    // world (0,0) is the start tile centre; convert to fractional grid coords
+    const playerGX = currentLevel.start.x + pp.x / TILE_SIZE;
+    const playerGY = currentLevel.start.y + pp.z / TILE_SIZE;
+    const { sx: px, sy: py } = toScreen(playerGX, playerGY);
+    mmCtx.fillStyle = '#ffd080';
+    mmCtx.beginPath();
+    mmCtx.arc(px + cellPx/2, py + cellPx/2, 3.5, 0, Math.PI*2);
+    mmCtx.fill();
+  }
+}
+
+// ─────────────────────────────────────────────
 // MAIN LOOP
 // ─────────────────────────────────────────────
 
@@ -2383,9 +2548,274 @@ function tick() {
     updateWorldItems(t);
     pulsePlaceholders(now);
     renderer.render(roomScene, roomCamera);
+    drawMinimap();
   }
 }
 tick();
+
+// ─────────────────────────────────────────────
+// EXPERIENCE PICKER
+// ─────────────────────────────────────────────
+
+const pickerPanelEl  = document.getElementById('picker-panel');
+const pickerListEl   = document.getElementById('picker-list');
+const pickerDetailEl = document.getElementById('picker-detail');
+const pickerStatusEl = document.getElementById('picker-status');
+
+let _pickerExperiences  = [];
+let _pickerSelectedId   = null;
+
+function openPickerPanel() {
+  pickerPanelEl.dataset.open = 'true';
+  _loadPickerExperiences();
+}
+function closePickerPanel() { pickerPanelEl.dataset.open = 'false'; }
+
+async function _loadPickerExperiences() {
+  pickerListEl.innerHTML = '<div class="picker-loading">scanning archives…</div>';
+  try {
+    _pickerExperiences = await fetchExperiences(FORGE_BASE);
+  } catch (_) {
+    _pickerExperiences = DEFAULT_EXPERIENCES;
+  }
+  _renderPickerList();
+  if (_pickerExperiences.length > 0) {
+    _selectPickerExperience(_pickerExperiences[0].id);
+  }
+}
+
+function _renderPickerList() {
+  let html = '';
+  const sys  = _pickerExperiences.filter(e => e.locked || e.author === 'system');
+  const user = _pickerExperiences.filter(e => !e.locked && e.author !== 'system');
+
+  for (const e of sys) {
+    html += _pickerRowHtml(e);
+  }
+  if (user.length) {
+    html += '<hr class="picker-row-divider">';
+    for (const e of user) html += _pickerRowHtml(e);
+  }
+  pickerListEl.innerHTML = html || '<div class="picker-loading muted">no experiences found</div>';
+  pickerListEl.querySelectorAll('.picker-row').forEach(row => {
+    row.addEventListener('click', () => _selectPickerExperience(row.dataset.id));
+  });
+}
+
+function _pickerRowHtml(e) {
+  const isFork = e.baseId != null;
+  return `<div class="picker-row" data-id="${escapeHtml(e.id)}" data-selected="false">
+    <div class="picker-row-name">${escapeHtml(e.name)}</div>
+    <div class="picker-row-meta">${escapeHtml(e.mode ?? 'roguelike')} · v${escapeHtml(e.version ?? '?')}</div>
+    ${isFork ? `<div class="picker-row-fork-tag">↩ ${escapeHtml(e.baseId)}</div>` : ''}
+  </div>`;
+}
+
+function _selectPickerExperience(id) {
+  _pickerSelectedId = id;
+  pickerListEl.querySelectorAll('.picker-row').forEach(r => {
+    r.dataset.selected = (r.dataset.id === id) ? 'true' : 'false';
+  });
+  const exp = _pickerExperiences.find(e => e.id === id);
+  if (!exp) return;
+  _renderPickerDetail(exp);
+}
+
+function _renderPickerDetail(exp) {
+  const isFork   = exp.baseId != null;
+  const isLocked = exp.locked;
+  const code     = encodeShareCode(exp);
+
+  pickerDetailEl.innerHTML = `
+    <div class="picker-detail-name">${escapeHtml(exp.name)}</div>
+    <div class="picker-detail-desc">${escapeHtml(exp.description ?? '')}</div>
+    <div class="picker-detail-meta">
+      <div class="picker-detail-meta-row">mode<span>${escapeHtml(exp.mode ?? 'roguelike')}</span></div>
+      <div class="picker-detail-meta-row">seed<span>${exp.level?.seed ?? '—'}</span></div>
+      <div class="picker-detail-meta-row">rooms<span>${exp.level?.roomCount ?? '—'}</span></div>
+      ${isFork ? `<div class="picker-detail-meta-row">based on<span>${escapeHtml(exp.baseId)}</span></div>` : ''}
+      ${isLocked ? '<div class="picker-detail-meta-row" style="color:var(--amber-dim)">system experience · fork to edit</div>' : ''}
+    </div>
+    <div class="picker-detail-actions">
+      <button class="picker-action-btn primary" id="pd-play-btn">▶ PLAY</button>
+      ${isLocked
+        ? '<button class="picker-action-btn" id="pd-fork-btn">⊕ FORK &amp; EDIT</button>'
+        : '<button class="picker-action-btn" id="pd-edit-btn">✏ EDIT</button>'
+      }
+    </div>
+    <div>
+      <div class="picker-detail-meta-row" style="margin-bottom:6px">share code</div>
+      <div class="picker-detail-code-row">
+        <input class="picker-detail-code" id="pd-code-input" readonly value="${escapeHtml(code)}" />
+        <button class="picker-action-btn" id="pd-copy-btn">COPY</button>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('pd-play-btn').addEventListener('click', () => launchExperience(exp));
+
+  const forkBtn = document.getElementById('pd-fork-btn');
+  if (forkBtn) forkBtn.addEventListener('click', async () => {
+    setStatus(pickerStatusEl, 'saving', 'forking…');
+    try {
+      const fork = await createFork(FORGE_BASE, exp);
+      _pickerExperiences.push(fork);
+      _renderPickerList();
+      _selectPickerExperience(fork.id);
+      setStatus(pickerStatusEl, 'saved', `fork created: ${fork.id.slice(0,8)}…`);
+    } catch (e) { setStatus(pickerStatusEl, 'error', e.message); }
+  });
+
+  const editBtn = document.getElementById('pd-edit-btn');
+  if (editBtn) editBtn.addEventListener('click', () => {
+    activeExperience = exp;
+    closePickerPanel();
+    openTerraPanel();
+  });
+
+  document.getElementById('pd-copy-btn').addEventListener('click', () => {
+    navigator.clipboard.writeText(code).catch(() => {});
+    document.getElementById('pd-copy-btn').textContent = 'COPIED';
+    setTimeout(() => { const b = document.getElementById('pd-copy-btn'); if (b) b.textContent = 'COPY'; }, 1800);
+  });
+}
+
+document.getElementById('picker-close-btn').addEventListener('click', closePickerPanel);
+document.getElementById('picker-import-btn').addEventListener('click', async () => {
+  const code = document.getElementById('picker-import-input').value.trim();
+  if (!code) return;
+  setStatus(pickerStatusEl, 'saving', 'importing…');
+  try {
+    const exp = await importFromCode(FORGE_BASE, code);
+    _pickerExperiences.push(exp);
+    _renderPickerList();
+    _selectPickerExperience(exp.id);
+    document.getElementById('picker-import-input').value = '';
+    setStatus(pickerStatusEl, 'saved', 'imported');
+  } catch (e) { setStatus(pickerStatusEl, 'error', e.message); }
+});
+
+// ─────────────────────────────────────────────
+// TERRA FABRICATOR PANEL
+// ─────────────────────────────────────────────
+
+const terraPanelEl = document.getElementById('terra-panel');
+const terraCanvas  = document.getElementById('terra-canvas');
+const tCtx         = terraCanvas.getContext('2d');
+const TC_SIZE      = 420;
+
+function openTerraPanel() {
+  terraPanelEl.dataset.open = 'true';
+  const exp = activeExperience;
+  document.getElementById('terra-exp-name').textContent = exp?.name ?? '—';
+  const isFork = exp && !exp.locked;
+  document.getElementById('terra-fork-badge').style.display = isFork ? 'inline' : 'none';
+
+  if (exp?.level) {
+    document.getElementById('terra-seed').value  = exp.level.seed  ?? 42;
+    document.getElementById('terra-rooms').value = exp.level.roomCount ?? 18;
+    document.getElementById('terra-grid').value  = exp.level.gridSize  ?? 12;
+    document.getElementById('terra-rooms-val').textContent = exp.level.roomCount ?? 18;
+    document.getElementById('terra-grid-val').textContent  = exp.level.gridSize  ?? 12;
+  }
+  _previewTerraMap();
+}
+function closeTerraPanel() { terraPanelEl.dataset.open = 'false'; }
+
+function _previewTerraMap() {
+  const seed  = (parseInt(document.getElementById('terra-seed').value)  || 42) >>> 0;
+  const rooms = parseInt(document.getElementById('terra-rooms').value)  || 18;
+  const grid  = parseInt(document.getElementById('terra-grid').value)   || 12;
+  const lvl   = generateLevel(seed, rooms, grid);
+  _drawTerraMap(lvl);
+}
+
+function _drawTerraMap(lvl) {
+  tCtx.clearRect(0, 0, TC_SIZE, TC_SIZE);
+  const pad = 20;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const t of lvl.tiles) {
+    if (t.x < minX) minX = t.x; if (t.x > maxX) maxX = t.x;
+    if (t.y < minY) minY = t.y; if (t.y > maxY) maxY = t.y;
+  }
+  const gW = maxX - minX + 1, gH = maxY - minY + 1;
+  const cell = Math.min((TC_SIZE - pad*2) / gW, (TC_SIZE - pad*2) / gH);
+  const ox = pad + ((TC_SIZE - pad*2) - gW*cell) / 2;
+  const oy = pad + ((TC_SIZE - pad*2) - gH*cell) / 2;
+
+  const DIRS_T = { n:[0,-1], s:[0,1], e:[1,0], w:[-1,0] };
+
+  for (const t of lvl.tiles) {
+    const sx = ox + (t.x - minX) * cell, sy = oy + (t.y - minY) * cell;
+    const p = 2;
+    if (t.type === 'start')     tCtx.fillStyle = 'rgba(255,160,64,0.65)';
+    else if (t.type === 'end')  tCtx.fillStyle = 'rgba(148,64,255,0.65)';
+    else                        tCtx.fillStyle = 'rgba(180,130,60,0.3)';
+    tCtx.fillRect(sx+p, sy+p, cell-p*2, cell-p*2);
+
+    // Doorway corridors as small connectors
+    tCtx.fillStyle = 'rgba(200,160,80,0.55)';
+    for (const dir of t.connections) {
+      const [dx, dy] = DIRS_T[dir];
+      const nPri = (t.x + dx)*1000 + (t.y + dy);
+      if (t.x*1000 + t.y > nPri) continue; // draw from lower-priority side only
+      const cw = Math.max(2, cell * 0.28);
+      const corridorX = sx + cell/2 - cw/2 + dx*cell/2;
+      const corridorY = sy + cell/2 - cw/2 + dy*cell/2;
+      const cLen = cell * 0.5 + cw;
+      if (dx !== 0) tCtx.fillRect(corridorX, sy + cell/2 - cw/2, cLen, cw);
+      else          tCtx.fillRect(sx + cell/2 - cw/2, corridorY, cw, cLen);
+    }
+
+    // Room label
+    tCtx.fillStyle = t.type === 'start' ? '#ffa040' : t.type === 'end' ? '#b060ff' : 'rgba(217,154,43,0.7)';
+    tCtx.font = `${Math.max(9, cell*0.28)}px VT323,monospace`;
+    tCtx.textAlign = 'center';
+    tCtx.textBaseline = 'middle';
+    if (t.type === 'start') tCtx.fillText('S', sx+cell/2, sy+cell/2);
+    else if (t.type === 'end') tCtx.fillText('X', sx+cell/2, sy+cell/2);
+  }
+
+  // Legend
+  tCtx.font = '13px VT323,monospace';
+  tCtx.textAlign = 'left';
+  tCtx.fillStyle = 'rgba(255,160,64,0.7)';  tCtx.fillText('S = start', pad, TC_SIZE - pad + 4);
+  tCtx.fillStyle = 'rgba(148,64,255,0.7)';  tCtx.fillText('X = exit', pad + 80, TC_SIZE - pad + 4);
+  tCtx.fillStyle = 'rgba(180,130,60,0.6)'; tCtx.fillText(`${lvl.roomCount} rooms`, pad + 170, TC_SIZE - pad + 4);
+}
+
+document.getElementById('terra-close-btn').addEventListener('click', closeTerraPanel);
+document.getElementById('terra-preview-btn').addEventListener('click', _previewTerraMap);
+
+document.getElementById('terra-rooms').addEventListener('input', e => {
+  document.getElementById('terra-rooms-val').textContent = e.target.value;
+});
+document.getElementById('terra-grid').addEventListener('input', e => {
+  document.getElementById('terra-grid-val').textContent = e.target.value;
+});
+
+document.getElementById('terra-save-btn').addEventListener('click', async () => {
+  if (!activeExperience) return;
+  if (activeExperience.locked) {
+    setStatus(document.getElementById('terra-status'), 'error', 'fork the experience first');
+    return;
+  }
+  const seed  = (parseInt(document.getElementById('terra-seed').value)  || 42) >>> 0;
+  const rooms = parseInt(document.getElementById('terra-rooms').value)  || 18;
+  const grid  = parseInt(document.getElementById('terra-grid').value)   || 12;
+  const updated = { ...activeExperience, level: { ...activeExperience.level, seed, roomCount: rooms, gridSize: grid } };
+  setStatus(document.getElementById('terra-status'), 'saving', 'saving…');
+  try {
+    activeExperience = await saveExperience(FORGE_BASE, updated);
+    // Refresh in picker list
+    const idx = _pickerExperiences.findIndex(e => e.id === activeExperience.id);
+    if (idx !== -1) _pickerExperiences[idx] = activeExperience;
+    setStatus(document.getElementById('terra-status'), 'saved', 'saved');
+    setTimeout(() => { document.getElementById('terra-status').dataset.state = 'idle'; }, 2500);
+  } catch (e) {
+    setStatus(document.getElementById('terra-status'), 'error', e.message);
+  }
+});
 
 // ─────────────────────────────────────────────
 // BOOT
