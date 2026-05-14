@@ -141,6 +141,11 @@
             <div class="hub-room-name">TERRA FABRICATOR</div>
             <div class="hub-room-tagline">Shape levels, seeds, and procedural generation for the active experience.</div>
           </div>
+          <div class="hub-room-card" id="hub-undercroft-card">
+            <div class="hub-room-sigil">⛏</div>
+            <div class="hub-room-name">THE UNDERCROFT</div>
+            <div class="hub-room-tagline">Event bus · State registry · Trigger manifest.</div>
+          </div>
           <div class="hub-room-card hub-room-sealed">
             <div class="hub-room-sigil">⊕</div>
             <div class="hub-room-name">LOBBY</div>
@@ -219,6 +224,26 @@
           <canvas id="terra-canvas" width="420" height="420"></canvas>
           <div class="terra-map-hint">level preview — seed determines layout</div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- The Undercroft: event bus monitor, state registry, trigger manifest. -->
+  <div id="undercroft-panel" data-open="false">
+    <div class="undercroft-frame">
+      <div class="undercroft-header">
+        <span class="undercroft-title">// THE UNDERCROFT</span>
+        <button class="undercroft-close-btn" id="undercroft-close-btn">✕ CLOSE</button>
+      </div>
+      <div class="undercroft-tabs">
+        <button class="uc-tab active" data-tab="registry">REGISTRY</button>
+        <button class="uc-tab" data-tab="monitor">MONITOR</button>
+        <button class="uc-tab" data-tab="manifest">MANIFEST</button>
+      </div>
+      <div class="undercroft-body">
+        <div id="undercroft-registry" class="undercroft-pane"></div>
+        <div id="undercroft-monitor" class="undercroft-pane" style="display:none"></div>
+        <div id="undercroft-manifest" class="undercroft-pane" style="display:none"></div>
       </div>
     </div>
   </div>

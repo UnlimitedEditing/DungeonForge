@@ -1960,3 +1960,141 @@ button:disabled { opacity: 0.4; cursor: wait; }
   background: rgba(4,2,0,0.88);
   image-rendering: pixelated;
 }
+
+/* ====================================================================
+   THE UNDERCROFT
+   ==================================================================== */
+
+#undercroft-panel {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.72);
+}
+#undercroft-panel[data-open="true"] { display: flex; }
+
+.undercroft-frame {
+  width: 700px;
+  max-height: 88vh;
+  background: #0a0600;
+  border: 1px solid var(--rust);
+  display: flex;
+  flex-direction: column;
+  font-family: 'VT323', monospace;
+  color: var(--amber);
+}
+
+.undercroft-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--rust);
+  background: rgba(217,154,43,0.06);
+}
+.undercroft-title {
+  font-size: 18px;
+  letter-spacing: 0.08em;
+  color: var(--amber);
+}
+.undercroft-close-btn {
+  background: none;
+  border: 1px solid var(--rust);
+  color: var(--amber-dim);
+  font-family: inherit;
+  font-size: 14px;
+  padding: 3px 10px;
+  cursor: pointer;
+  letter-spacing: 0.05em;
+}
+.undercroft-close-btn:hover { color: var(--amber); border-color: var(--amber); }
+
+.undercroft-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--rust);
+  background: rgba(0,0,0,0.3);
+}
+.uc-tab {
+  background: none;
+  border: none;
+  border-right: 1px solid var(--rust);
+  color: var(--amber-dim);
+  font-family: 'VT323', monospace;
+  font-size: 16px;
+  padding: 7px 22px;
+  cursor: pointer;
+  letter-spacing: 0.07em;
+  transition: color 120ms, background 120ms;
+}
+.uc-tab:hover { color: var(--amber); background: rgba(217,154,43,0.06); }
+.uc-tab.active {
+  color: var(--amber);
+  border-bottom: 2px solid var(--amber);
+  background: rgba(217,154,43,0.1);
+}
+
+.undercroft-body { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+
+.undercroft-pane {
+  flex: 1;
+  padding: 14px 18px;
+  overflow-y: auto;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* Registry table */
+.uc-registry-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+.uc-registry-table th {
+  text-align: left;
+  color: var(--amber-dim);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--rust);
+}
+.uc-registry-table td { padding: 3px 8px; }
+.uc-section-row td {
+  color: var(--amber-dim);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  padding-top: 10px;
+  border-top: 1px solid rgba(100,50,20,0.4);
+}
+.uc-key { color: var(--amber); min-width: 160px; }
+.uc-val { color: rgba(217,154,43,0.7); font-size: 14px; }
+.uc-empty { color: var(--amber-dim); font-style: italic; font-size: 14px; }
+
+/* Monitor log */
+.uc-event-log {
+  max-height: 420px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(217,154,43,0.75);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.uc-log-line { padding: 1px 0; }
+.uc-log-line:nth-child(even) { background: rgba(217,154,43,0.03); }
+
+/* Refresh / clear buttons */
+.uc-refresh-btn {
+  margin-top: 12px;
+  background: none;
+  border: 1px solid var(--rust);
+  color: var(--amber-dim);
+  font-family: 'VT323', monospace;
+  font-size: 14px;
+  padding: 4px 14px;
+  cursor: pointer;
+  letter-spacing: 0.05em;
+}
+.uc-refresh-btn:hover { color: var(--amber); border-color: var(--amber); }
