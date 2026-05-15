@@ -435,9 +435,12 @@ button:disabled { opacity: 0.4; cursor: wait; }
   color: var(--amber-dim);
   line-height: 1;
   margin-bottom: 2px;
+  text-shadow: 0 0 8px rgba(217,154,43,0.2);
+  transition: color 100ms, text-shadow 100ms;
 }
 .hub-room-card:not(.hub-room-sealed):hover .hub-room-sigil {
   color: var(--amber);
+  text-shadow: 0 0 14px var(--amber-glow);
 }
 .hub-room-name {
   font-family: 'Press Start 2P', monospace;
@@ -1270,7 +1273,7 @@ button:disabled { opacity: 0.4; cursor: wait; }
   top: 50%;
   transform: translate(-50%, -50%);
   z-index: 65;
-  width: min(720px, 95vw);
+  width: min(900px, 96vw);
   pointer-events: none;
   opacity: 0;
   transition: opacity 160ms, transform 160ms;
@@ -1418,7 +1421,7 @@ button:disabled { opacity: 0.4; cursor: wait; }
 }
 .inventory-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(8, 1fr);
   gap: 4px;
 }
 .inv-cell {
@@ -1460,10 +1463,78 @@ button:disabled { opacity: 0.4; cursor: wait; }
 }
 
 /* Rarity colours */
-.rarity-common    { color: var(--amber-dim); }
-.rarity-uncommon  { color: #4aaa4a; }
-.rarity-rare      { color: #4a7add; }
-.rarity-legendary { color: #dd8800; }
+.rarity-common    { color: var(--common); }
+.rarity-uncommon  { color: var(--uncommon); }
+.rarity-rare      { color: var(--rare); }
+.rarity-legendary { color: var(--legendary); }
+
+/* Item detail panel (inventory third column) */
+.inv-detail-panel {
+  width: 185px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--rust);
+  padding: var(--s-5) var(--s-5) var(--s-6);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.inv-detail-empty {
+  font-size: 14px;
+  color: var(--amber-dim);
+  font-style: italic;
+  margin-top: var(--s-4);
+  line-height: 1.4;
+}
+.inv-detail-icon-cell {
+  width: 46px; height: 46px;
+  border: 1px solid currentColor;
+  background: rgba(217,154,43,0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.inv-detail-badge {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 6px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.inv-detail-name {
+  font-size: 17px;
+  color: var(--amber);
+  margin-top: var(--s-1);
+  line-height: 1.2;
+}
+.inv-detail-stats {
+  font-size: 14px;
+  color: var(--bone);
+  line-height: 1.6;
+  margin-top: var(--s-2);
+}
+.inv-detail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin-top: var(--s-4);
+}
+
+/* Shared card section label (used by inventory + panels) */
+.card-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: var(--amber-dim);
+  letter-spacing: 0.1em;
+}
+
+/* Panel title icon alignment */
+.panel-title-icon {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-right: 6px;
+  opacity: 0.65;
+}
 
 /* ── Pose Editor ─────────────────────────────── */
 #pose-editor-panel { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; z-index:74; pointer-events:none; }
