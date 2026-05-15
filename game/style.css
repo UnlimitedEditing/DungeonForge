@@ -561,6 +561,65 @@ button:disabled { opacity: 0.4; cursor: wait; }
 .lore-status[data-state="saved"]  { color: var(--ok); }
 .lore-status[data-state="error"]  { color: var(--blood); }
 
+/* World scaffold section in Library */
+.lib-scaffold-section {
+  border-top: 1px solid var(--rust);
+  padding-top: 18px;
+  margin-top: 4px;
+}
+.lib-scaffold-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+.scaffold-status {
+  font-family: 'VT323', monospace;
+  font-size: 16px;
+  color: var(--amber-dim);
+  flex: 1;
+}
+.scaffold-status[data-state="ready"]  { color: var(--ok); }
+.scaffold-status[data-state="queued"] { color: var(--amber); animation: blink 1s steps(2) infinite; }
+.scaffold-status[data-state="error"]  { color: var(--blood); }
+.lib-scaffold-btn {
+  background: none;
+  border: 1px solid var(--rust);
+  color: var(--amber-dim);
+  font-family: 'VT323', monospace;
+  font-size: 16px;
+  padding: 4px 14px;
+  cursor: pointer;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.lib-scaffold-btn:hover:not(:disabled) { color: var(--amber); border-color: var(--amber); }
+.lib-scaffold-btn:disabled { opacity: 0.4; cursor: default; }
+.scaffold-preview {
+  margin-top: 14px;
+  font-family: 'VT323', monospace;
+  font-size: 14px;
+  color: rgba(217,154,43,0.7);
+  border: 1px solid rgba(100,50,20,0.5);
+  padding: 10px 14px;
+  line-height: 1.6;
+}
+.scaffold-row { margin-bottom: 6px; }
+.scaffold-label {
+  color: var(--amber-dim);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  margin-right: 8px;
+}
+.scaffold-arch, .scaffold-hook {
+  padding-left: 14px;
+  color: rgba(217,154,43,0.6);
+  font-size: 13px;
+}
+
+/* terminal-status world notification state */
+.terminal-status[data-state="world"] { color: var(--amber); animation: blink 2s steps(2) 2; }
+
 /* Entities Codex artifact in Library */
 .library-codex {
   display: flex;

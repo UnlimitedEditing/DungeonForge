@@ -44,6 +44,7 @@ export const DEFAULT_EXPERIENCES = [
       description: 'Ancient halls, forgotten horrors.',
     },
     triggers: [],
+    scaffold: null,   // populated by POST /scaffold/{id} — null until first generation
   },
 ];
 
