@@ -18,7 +18,7 @@ import {
   updatePlayerHud, flashHit, spawnDamageNumber,
   refreshEntityHpBar, pickupPromptEl, pickupItemNameEl,
   hitFlashEl, showLevelUpNotification,
-  escapeHtml,
+  escapeHtml, addCombatLine,
 } from './hud.js';
 import { icon } from './icons.js';
 
@@ -66,6 +66,7 @@ export function meleeAttack() {
   nearest.stats.hp = Math.max(0, nearest.stats.hp - dmg);
   spawnDamageNumber(nearest.mesh.position, dmg, false);
   refreshEntityHpBar(nearest);
+  addCombatLine(`you strike ${(nearest.prompt || 'enemy').toLowerCase().slice(0, 24)} for ${dmg}`, 'dealt');
   if (nearest.stats.hp <= 0) killEntity(nearest);
 }
 
@@ -98,6 +99,7 @@ export function killEntity(entry) {
   if (entry.hpBar)    { roomScene.remove(entry.hpBar);    entry.hpBar    = null; }
   if (entry.shadowBlob) { roomScene.remove(entry.shadowBlob); entry.shadowBlob = null; }
 
+  addCombatLine(`${(entry.prompt || 'enemy').toLowerCase().slice(0, 24)} falls`, 'lore');
   gainXp(entry.stats?.xpReward ?? 0);
 
   // configurable drop chance
@@ -110,6 +112,7 @@ export function killEntity(entry) {
 
 export function onPlayerDeath() {
   player.hp = 1;  // survive at 1 HP for now; full death screen is future work
+  addCombatLine('you are brought low — barely surviving', 'taken');
   updatePlayerHud();
   // Simple feedback — flash stays red longer
   hitFlashEl.classList.add('active');
