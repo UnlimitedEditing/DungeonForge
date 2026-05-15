@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { player, sprites, appMode, profileUsername } from './state.js';
 import { roomScene, roomCamera, controls } from './scene.js';
+import { icon } from './icons.js';
 
 const SPRITE_WORLD_H = 2.2;  // world-space height used for all sprites
 const HP_BAR_W = 0.85;
@@ -16,6 +17,7 @@ const HP_BAR_H = 0.07;
 
 const statsHudEl         = document.getElementById('stats-hud');
 const hudLevelEl         = document.getElementById('hud-level');
+const hudPlayerNameEl    = document.getElementById('hud-playername');
 const hudHpFillEl        = document.getElementById('hud-hp-fill');
 const hudHpValEl         = document.getElementById('hud-hp-val');
 const hudXpFillEl        = document.getElementById('hud-xp-fill');
@@ -33,6 +35,20 @@ const hudPlayer  = document.getElementById('hud-player');
 const hudPos     = document.getElementById('hud-pos');
 export const jobsListEl = document.getElementById('jobs-list');
 
+// Target frame
+const targetFrameEl = document.getElementById('target-frame');
+const tfNameEl      = document.getElementById('tf-name');
+const tfBadgeEl     = document.getElementById('tf-badge');
+const tfHpFillEl    = document.getElementById('tf-hp-fill');
+const tfHpValEl     = document.getElementById('tf-hp-val');
+const tfIconEl      = document.getElementById('tf-icon');
+
+// Combat feed
+const combatFeedEl    = document.getElementById('combat-feed');
+const combatLinesEl   = document.getElementById('combat-feed-lines');
+const ACTION_BAR_EL   = document.getElementById('action-bar');
+const MAX_FEED_LINES  = 6;
+
 // Export statsHudEl so main.js can set data-visible
 export { statsHudEl, hitFlashEl };
 
@@ -42,13 +58,85 @@ export { statsHudEl, hitFlashEl };
 
 export function updatePlayerHud() {
   hudLevelEl.textContent = player.level;
+  if (hudPlayerNameEl) hudPlayerNameEl.textContent = profileUsername || '—';
   const hpPct = player.hp / player.maxHp;
-  hudHpFillEl.style.width      = `${(hpPct * 100).toFixed(1)}%`;
-  hudHpFillEl.style.background = hpPct > 0.5 ? '#22bb22' : hpPct > 0.25 ? '#cccc22' : '#cc2222';
-  hudHpValEl.textContent       = `${player.hp}/${player.maxHp}`;
+  hudHpFillEl.style.width = `${(hpPct * 100).toFixed(1)}%`;
+  // HP bar colour handled by .bar-fill.hp; tint red when low
+  if (hpPct <= 0.25) {
+    hudHpFillEl.style.background = '#cc2222';
+  } else if (hpPct <= 0.5) {
+    hudHpFillEl.style.background = '#cccc22';
+  } else {
+    hudHpFillEl.style.background = '';   // fallback to CSS .bar-fill.hp
+  }
+  hudHpValEl.textContent  = `${player.hp}/${player.maxHp}`;
   const xpPct = player.xp / player.xpToNext;
   hudXpFillEl.style.width = `${(xpPct * 100).toFixed(1)}%`;
   hudXpValEl.textContent  = `${player.xp}/${player.xpToNext}`;
+}
+
+// ─────────────────────────────────────────────
+// TARGET FRAME
+// ─────────────────────────────────────────────
+
+export function updateTargetFrame(entity) {
+  if (!targetFrameEl) return;
+  if (!entity || entity.aiState === 'dead') {
+    targetFrameEl.dataset.visible = 'false';
+    return;
+  }
+  const name  = (entity.prompt || 'UNKNOWN').toUpperCase().slice(0, 32);
+  const level = entity.stats?.level ?? 1;
+  const hp    = entity.stats?.hp    ?? 0;
+  const maxHp = entity.stats?.maxHp ?? 1;
+  const pct   = Math.max(0, hp / maxHp);
+
+  tfIconEl.innerHTML         = icon('skull', 13);
+  tfNameEl.textContent       = name;
+  tfBadgeEl.textContent      = `LV ${level}`;
+  tfHpFillEl.style.width     = `${(pct * 100).toFixed(1)}%`;
+  tfHpValEl.textContent      = `${hp}/${maxHp}`;
+  targetFrameEl.dataset.visible = 'true';
+}
+
+// ─────────────────────────────────────────────
+// COMBAT FEED
+// ─────────────────────────────────────────────
+
+export function addCombatLine(text, type = 'dealt') {
+  if (!combatLinesEl) return;
+  const el = document.createElement('div');
+  el.className = `cf-line cf-${type}`;
+  el.textContent = text;
+  combatLinesEl.prepend(el);
+  // Keep max lines
+  while (combatLinesEl.children.length > MAX_FEED_LINES) {
+    combatLinesEl.lastChild?.remove();
+  }
+}
+
+// ─────────────────────────────────────────────
+// ACTION BAR INIT
+// ─────────────────────────────────────────────
+
+export function initActionBar() {
+  const slots = {
+    'ab-q-icon':   icon('sword',  22),
+    'ab-f-icon':   icon('gem',    22),
+    'ab-i-icon':   icon('bag',    22),
+    'ab-esc-icon': icon('portal', 22),
+  };
+  for (const [id, svg] of Object.entries(slots)) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = svg;
+  }
+}
+
+export function setHudInWorld(visible) {
+  const v = visible ? 'true' : 'false';
+  if (statsHudEl)    statsHudEl.dataset.visible    = v;
+  if (ACTION_BAR_EL) ACTION_BAR_EL.dataset.visible = v;
+  if (combatFeedEl)  combatFeedEl.dataset.visible  = v;
 }
 
 export function flashHit() {

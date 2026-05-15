@@ -39,7 +39,7 @@ import {
   updatePlayerHud, flashHit, spawnDamageNumber,
   createEntityHpBar, refreshEntityHpBar, updateHpBarTransforms,
   refreshHud, refreshJobList, updateHudPlayer, escapeHtml,
-  statsHudEl,
+  statsHudEl, updateTargetFrame, initActionBar, setHudInWorld,
 } from './hud.js';
 import {
   meleeAttack, killEntity, getEquipBonus, gainXp,
@@ -108,7 +108,7 @@ async function launchExperience(exp) {
   closeLibraryPanel();
   terminal.dataset.open = 'true';
   crosshair.dataset.visible = 'false';
-  statsHudEl.dataset.visible = 'true';
+  setHudInWorld(true);
   document.getElementById('minimap').dataset.visible = 'true';
   setLevelComplete(false);
   initWorldState(exp.state ?? {});
@@ -193,7 +193,8 @@ function returnToForge() {
   applyExperienceRules(null);
   terminal.dataset.open = 'false';
   crosshair.dataset.visible = 'false';
-  statsHudEl.dataset.visible = 'false';
+  setHudInWorld(false);
+  updateTargetFrame(null);
   document.getElementById('minimap').dataset.visible = 'false';
   showForgeHub();
 }
@@ -871,6 +872,30 @@ on(EVENTS.COUNTER_CHANGED, () => {
 });
 
 // ─────────────────────────────────────────────
+// TARGET FRAME — nearest live enemy within range
+// ─────────────────────────────────────────────
+
+const TARGET_RANGE = 10;
+let _lastTargetUpdate = 0;
+
+function _updateTargetFrameNearby() {
+  const now = performance.now();
+  if (now - _lastTargetUpdate < 150) return;  // throttle to ~6fps
+  _lastTargetUpdate = now;
+
+  const playerPos = roomCamera.position;
+  let nearest = null, nearestDist = TARGET_RANGE;
+
+  for (const e of sprites.values()) {
+    if (!e.mesh || e.aiState === 'dead' || !e.stats) continue;
+    if (e.mesh.userData.isPlaceholder) continue;
+    const d = playerPos.distanceTo(e.mesh.position);
+    if (d < nearestDist) { nearest = e; nearestDist = d; }
+  }
+  updateTargetFrame(nearest);
+}
+
+// ─────────────────────────────────────────────
 // MAIN LOOP
 // ─────────────────────────────────────────────
 
@@ -892,6 +917,7 @@ function tick() {
     updateEntities(dt);
     updateWorldItems(t);
     pulsePlaceholders(now);
+    _updateTargetFrameNearby();
     renderer.render(roomScene, roomCamera);
     drawMinimap();
   }
@@ -942,4 +968,5 @@ async function applyIcons() {
 }
 
 applyIcons();
+initActionBar();
 initProfile();

@@ -397,25 +397,76 @@
     <span></span><span></span>
   </div>
 
+  <!-- Target frame: top-centre, shown when near a hostile. -->
+  <div id="target-frame" data-visible="false">
+    <div class="tf-head">
+      <div class="tf-name-row">
+        <span class="tf-icon" id="tf-icon"></span>
+        <span class="tf-name" id="tf-name">—</span>
+        <span class="badge badge-blood" id="tf-badge">LV 1</span>
+      </div>
+    </div>
+    <div class="tf-body">
+      <div class="bar">
+        <div class="bar-label" style="color:var(--blood)">HP</div>
+        <div class="bar-track" style="border-color:var(--blood)">
+          <div class="bar-fill" id="tf-hp-fill" style="background:var(--blood);width:100%"></div>
+        </div>
+        <div class="bar-val" id="tf-hp-val" style="color:var(--blood-hot)">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Combat feed: floating damage / event log, bottom-left above stats. -->
+  <div id="combat-feed" data-visible="false">
+    <div id="combat-feed-lines"></div>
+  </div>
+
   <!-- Stats HUD: HP, XP, level — bottom-left, above the bezel. -->
   <div id="stats-hud" data-visible="false">
-    <div class="stats-level-row">
-      <div class="stats-label">LVL</div>
-      <div class="stats-level-val" id="hud-level">1</div>
+    <div class="stats-name-row">
+      <div class="bar-label">LVL</div>
+      <div class="stats-level-big" id="hud-level">1</div>
+      <div class="stats-playername" id="hud-playername">—</div>
     </div>
-    <div class="stats-bar-row">
-      <div class="stats-label">HP</div>
-      <div class="stats-bar-track">
-        <div class="stats-bar-fill stats-hp-fill" id="hud-hp-fill"></div>
+    <div class="bar">
+      <div class="bar-label">HP</div>
+      <div class="bar-track">
+        <div class="bar-fill hp" id="hud-hp-fill" style="width:100%"></div>
       </div>
-      <div class="stats-bar-val" id="hud-hp-val">100/100</div>
+      <div class="bar-val" id="hud-hp-val">100/100</div>
     </div>
-    <div class="stats-bar-row">
-      <div class="stats-label">XP</div>
-      <div class="stats-bar-track">
-        <div class="stats-bar-fill stats-xp-fill" id="hud-xp-fill" style="width:0%"></div>
+    <div class="bar">
+      <div class="bar-label">XP</div>
+      <div class="bar-track">
+        <div class="bar-fill xp" id="hud-xp-fill" style="width:0%"></div>
       </div>
-      <div class="stats-bar-val" id="hud-xp-val">0/100</div>
+      <div class="bar-val" id="hud-xp-val">0/100</div>
+    </div>
+  </div>
+
+  <!-- Action bar: bottom-centre above bezel. -->
+  <div id="action-bar" data-visible="false">
+    <div class="ab-slot" id="ab-q">
+      <div class="ab-key">Q</div>
+      <div class="ab-icon" id="ab-q-icon"></div>
+    </div>
+    <div class="ab-slot" id="ab-f">
+      <div class="ab-key">F</div>
+      <div class="ab-icon" id="ab-f-icon"></div>
+    </div>
+    <div class="ab-slot ab-slot-empty"></div>
+    <div class="ab-slot ab-slot-empty"></div>
+    <div class="ab-slot ab-slot-empty"></div>
+    <div class="ab-slot ab-slot-empty"></div>
+    <div class="ab-slot ab-slot-empty"></div>
+    <div class="ab-slot" id="ab-i">
+      <div class="ab-key">I</div>
+      <div class="ab-icon" id="ab-i-icon"></div>
+    </div>
+    <div class="ab-slot" id="ab-esc">
+      <div class="ab-key">ESC</div>
+      <div class="ab-icon" id="ab-esc-icon"></div>
     </div>
   </div>
 
