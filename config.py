@@ -94,11 +94,30 @@ DEFAULTS: dict[str, Any] = {
     ),
 
     # --- lore source ---
-    # Free-text world description. Currently stored only.
-    # Next layer: feed into an LLM-composer that derives prompt modifiers
-    # from lore + player behaviour, making every run feel like the same
-    # world rather than a random sprite soup.
+    # Free-text world description fed into the scaffold LLM call.
     "lore": "",
+
+    # --- scaffold / LLM inference ---
+    # Graydient persona slug used for scaffold generation.
+    # kimi-k2 and qwen3-235b are strong instruction followers good for structured JSON output.
+    "scaffold_persona": "kimi-k2",
+
+    # System prompt sent with every scaffold generation request.
+    # The user prompt is built from experience.lore + rules summary at request time.
+    "scaffold_system_prompt": (
+        "You are a world scaffolding engine for a procedurally generated dungeon crawler. "
+        "Given a lore description and experience rules, output a JSON object with exactly these fields: "
+        "toneVocabulary (array of 5-8 short image-prompt adjectives/phrases), "
+        "promptModifier (string of 15-20 words describing visual aesthetic for image generation), "
+        "archetypes (array of 3-5 objects each with: name, tierRange [min,max] where values are 1-5, "
+        "statMultiplier float 0.2-1.0, evolutionHint string describing what a stronger version looks like), "
+        "inferenceHooks (array of objects each with: id string, "
+        "trigger object with type ('counter_gte' or 'flag_eq'), key string, value, "
+        "promptModifier string, statShift float 0.0-0.3, contextNote string shown to player). "
+        "Generate one hook for enemies_killed reaching 10, one for boss_defeated becoming true, "
+        "and one or two more based on the world lore. "
+        "Respond ONLY with valid JSON. No explanation, no markdown, no code fences."
+    ),
 
     # --- Arcanum: progression tuning ---
     "xp_multiplier":   1.0,   # multiplied on every XP gain

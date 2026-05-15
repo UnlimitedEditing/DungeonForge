@@ -79,8 +79,11 @@ BACK_FRAME_SUFFIXES = [
     "back view walk cycle frame 4 of 4: passing position from behind, weight on right leg, left leg swinging through, slight dip",
 ]
 
-def build_sprite_prompt(user_prompt: str) -> str:
-    return config.get("sprite_prompt_template").format(user_prompt=user_prompt.strip())
+def build_sprite_prompt(user_prompt: str, active_modifier: str = "") -> str:
+    base = config.get("sprite_prompt_template").format(user_prompt=user_prompt.strip())
+    if active_modifier:
+        base = f"{base}, {active_modifier}"
+    return base
 
 def build_variant_prompt(variant_type: str) -> str:
     """Return the prompt for a variant render. No subject description —
@@ -98,12 +101,21 @@ def build_frame_prompt(suffix: str) -> str:
 
 # ---------- stat generation ----------
 
-def roll_entity_stats() -> dict:
-    """Roll randomised combat stats for a newly created entity."""
+def roll_entity_stats(stat_tier: float = 0.5) -> dict:
+    """
+    Roll combat stats for a newly created entity.
+
+    stat_tier: 0.0–1.0 float from the world scaffold's archetype statMultiplier.
+    Maps linearly onto the level range so lore-coherent concepts get
+    appropriate power rather than random rolls.
+    Defaults to 0.5 (mid-range) when no scaffold is active.
+    """
     import config as _cfg
     level_min = int(_cfg.get("entity_level_min") or 1)
     level_max = int(_cfg.get("entity_level_max") or 5)
-    level  = random.randint(level_min, level_max)
+    # Clamp tier and derive a level deterministically from it
+    tier   = max(0.0, min(1.0, stat_tier))
+    level  = max(level_min, min(level_max, round(level_min + tier * (level_max - level_min))))
     max_hp = 20 + (level - 1) * 10
     return {
         "level":      level,
@@ -159,6 +171,8 @@ class ConfigUpdate(BaseModel):
 class JobRequest(BaseModel):
     prompt: str
     profile_id: str
+    prompt_modifier: Optional[str] = None   # active scaffold modifier from lore-engine
+    stat_tier: Optional[float] = None       # 0.0-1.0 from scaffold archetype; None = roll random
 
 class VariantRequest(BaseModel):
     profile_id: str
@@ -577,15 +591,16 @@ def create_job(req: JobRequest):
     if not profiles.get_api_key(req.profile_id):
         raise HTTPException(401, "session expired — please log in again")
     job_id = uuid.uuid4().hex[:8]
+    stat_tier = req.stat_tier if req.stat_tier is not None else 0.5
     job = Job(
         id=job_id,
         profile_id=req.profile_id,
         prompt=prompt,
-        full_prompt=build_sprite_prompt(prompt),
+        full_prompt=build_sprite_prompt(prompt, req.prompt_modifier or ""),
         status="queued",
         created_at=time.time(),
         job_type="entity",
-        entity_stats=roll_entity_stats(),
+        entity_stats=roll_entity_stats(stat_tier),
     )
     with JOBS_LOCK:
         JOBS[job_id] = job
@@ -886,6 +901,120 @@ def import_experience(body: dict):
         exps.append(exp)
         _save_experiences(exps)
     return exp
+
+# -- world scaffold --
+
+_SCAFFOLDS_PATH = os.path.join(os.path.dirname(__file__), "scaffolds.json")
+_SCAFFOLD_LOCK  = threading.Lock()
+_SCAFFOLD_PENDING:  set[str] = set()    # experience_ids currently being generated
+_SCAFFOLD_API_KEYS: dict[str, str] = {} # exp_id → api_key for in-flight scaffold jobs
+
+def _load_scaffolds() -> dict:
+    try:
+        with open(_SCAFFOLDS_PATH) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+def _save_scaffolds(scaffolds: dict) -> None:
+    with open(_SCAFFOLDS_PATH, "w") as f:
+        json.dump(scaffolds, f, indent=2)
+
+SCAFFOLD_QUEUE: "queue.Queue[str]" = queue.Queue()
+
+def scaffold_worker():
+    log.info("scaffold worker started")
+    while True:
+        exp_id = SCAFFOLD_QUEUE.get()
+        try:
+            # Resolve experience
+            with _EXP_LOCK:
+                exps = _load_experiences()
+            exp = next((e for e in exps if e["id"] == exp_id), None)
+            if not exp:
+                log.warning("[scaffold:%s] experience not found", exp_id)
+                continue
+
+            # Resolve API key — use the requesting profile's key stored in pending meta,
+            # falling back to any active session. Scaffold is low-priority; skip if none available.
+            api_key = _SCAFFOLD_API_KEYS.pop(exp_id, None)
+            if not api_key:
+                log.warning("[scaffold:%s] no active session — scaffold skipped", exp_id)
+                continue
+
+            lore = exp.get("lore", {})
+            rules = exp.get("rules", {})
+            user_prompt = (
+                f"Experience name: {exp.get('name', exp_id)}\n"
+                f"World title: {lore.get('title', '')}\n"
+                f"World description: {lore.get('description', '')}\n"
+                f"Game rules summary: playerHp={rules.get('playerHp', 100)}, "
+                f"enemyDamage={rules.get('enemyDamage', 10)}, "
+                f"mode={exp.get('mode', 'roguelike')}"
+            )
+
+            system_prompt = config.get("scaffold_system_prompt")
+            persona       = config.get("scaffold_persona") or "Polly"
+            raw = graydient_client.llm_query(user_prompt, system_prompt, api_key, persona)
+
+            try:
+                scaffold = json.loads(raw)
+            except json.JSONDecodeError:
+                # Try to extract JSON substring if LLM added surrounding text
+                import re
+                match = re.search(r'\{.*\}', raw, re.DOTALL)
+                if match:
+                    scaffold = json.loads(match.group())
+                else:
+                    raise ValueError(f"LLM returned non-JSON: {raw[:200]}")
+
+            scaffold["experienceId"] = exp_id
+            scaffold["generatedAt"]  = int(time.time())
+
+            with _SCAFFOLD_LOCK:
+                scaffolds = _load_scaffolds()
+                scaffolds[exp_id] = scaffold
+                _save_scaffolds(scaffolds)
+
+            log.info("[scaffold:%s] generated OK", exp_id)
+
+        except Exception:
+            log.exception("[scaffold:%s] FAILED", exp_id)
+        finally:
+            _SCAFFOLD_PENDING.discard(exp_id)
+            SCAFFOLD_QUEUE.task_done()
+
+threading.Thread(target=scaffold_worker, daemon=True).start()
+
+@app.get("/scaffold/{exp_id}")
+def get_scaffold(exp_id: str):
+    with _SCAFFOLD_LOCK:
+        scaffolds = _load_scaffolds()
+    if exp_id not in scaffolds:
+        raise HTTPException(404, "no scaffold generated yet for this experience")
+    return scaffolds[exp_id]
+
+@app.get("/scaffold/{exp_id}/status")
+def scaffold_status(exp_id: str):
+    with _SCAFFOLD_LOCK:
+        scaffolds = _load_scaffolds()
+    if exp_id in scaffolds:
+        return {"status": "ready", "generatedAt": scaffolds[exp_id].get("generatedAt")}
+    if exp_id in _SCAFFOLD_PENDING:
+        return {"status": "queued"}
+    return {"status": "none"}
+
+@app.post("/scaffold/{exp_id}")
+def generate_scaffold(exp_id: str, request: Request):
+    profile_id = request.headers.get("X-Profile-Id", "")
+    api_key = profiles.get_api_key(profile_id)
+    if not api_key:
+        raise HTTPException(401, "session expired — please log in again")
+    _SCAFFOLD_PENDING.add(exp_id)
+    _SCAFFOLD_API_KEYS[exp_id] = api_key
+    SCAFFOLD_QUEUE.put(exp_id)
+    log.info("[scaffold:%s] queued by %s", exp_id, profile_id)
+    return {"status": "queued", "experience_id": exp_id}
 
 # -- static assets --
 

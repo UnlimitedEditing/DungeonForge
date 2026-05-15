@@ -25,6 +25,11 @@ import {
 import { emit, on, off, EVENTS } from './events.js';
 import { init as initWorldState, reset as resetWorldState, snapshot as snapshotState } from './world-state.js';
 import { loadTriggers, unloadTriggers, getLoadedTriggers } from './triggers.js';
+import {
+  loadScaffold, generateScaffold, pollScaffoldStatus,
+  checkTriggers as checkScaffoldTriggers, getActivePromptModifier,
+  getStatTier, getEvolutionHint, resetSession as resetLoreSession,
+} from './lore-engine.js';
 
 // ─────────────────────────────────────────────
 // CONSTANTS
@@ -192,6 +197,7 @@ async function launchExperience(exp) {
   applyExperienceRules(exp);
   updatePlayerHud();
   emit(EVENTS.EXPERIENCE_LOADED, { id: exp.id, name: exp.name });
+  loadScaffold(FORGE_BASE, exp.id);  // non-blocking — enriches next spawn if ready in time
 }
 
 function applyExperienceRules(exp) {
@@ -259,6 +265,7 @@ function returnToForge() {
   if (controls.isLocked) controls.unlock();
   unloadTriggers();
   resetWorldState();
+  resetLoreSession();
   applyExperienceRules(null);
   terminal.dataset.open = 'false';
   crosshair.dataset.visible = 'false';
@@ -1106,11 +1113,6 @@ const loreTextarea   = document.getElementById('lore-textarea');
 const loreStatus     = document.getElementById('lore-status');
 const loreSaveBtn    = document.getElementById('lore-save-btn');
 
-function openLibraryPanel() {
-  libraryPanelEl.dataset.open = 'true';
-  loadLore();
-  loreTextarea.focus();
-}
 function closeLibraryPanel() {
   libraryPanelEl.dataset.open = 'false';
 }
@@ -1148,6 +1150,80 @@ document.getElementById('library-entities-btn').addEventListener('click', () => 
   closeLibraryPanel();
   openEntities();
 });
+
+// Scaffold generation
+const scaffoldStatusEl  = document.getElementById('scaffold-status');
+const scaffoldPreviewEl = document.getElementById('scaffold-preview');
+const scaffoldGenBtn    = document.getElementById('scaffold-generate-btn');
+
+async function _loadScaffoldUI(expId) {
+  try {
+    const res = await fetch(`${FORGE_BASE}/scaffold/${expId}/status`);
+    if (!res.ok) { scaffoldStatusEl.textContent = 'not generated'; return; }
+    const data = await res.json();
+    if (data.status === 'ready') {
+      scaffoldStatusEl.textContent = `ready · ${new Date(data.generatedAt * 1000).toLocaleTimeString()}`;
+      scaffoldStatusEl.dataset.state = 'ready';
+      _renderScaffoldPreview(expId);
+    } else if (data.status === 'queued') {
+      scaffoldStatusEl.textContent = 'generating…';
+      scaffoldStatusEl.dataset.state = 'queued';
+      setTimeout(() => _loadScaffoldUI(expId), 3000);
+    } else {
+      scaffoldStatusEl.textContent = 'not generated';
+      scaffoldStatusEl.dataset.state = '';
+    }
+  } catch { scaffoldStatusEl.textContent = 'not generated'; }
+}
+
+async function _renderScaffoldPreview(expId) {
+  try {
+    const res = await fetch(`${FORGE_BASE}/scaffold/${expId}`);
+    if (!res.ok) return;
+    const sc = await res.json();
+    scaffoldPreviewEl.style.display = '';
+    scaffoldPreviewEl.innerHTML = `
+      <div class="scaffold-row"><span class="scaffold-label">TONE</span> ${(sc.toneVocabulary ?? []).join(', ')}</div>
+      <div class="scaffold-row"><span class="scaffold-label">MODIFIER</span> ${sc.promptModifier ?? '—'}</div>
+      <div class="scaffold-row"><span class="scaffold-label">ARCHETYPES</span>
+        ${(sc.archetypes ?? []).map(a =>
+          `<div class="scaffold-arch">${a.name} (tier ${a.tierRange?.[0]}–${a.tierRange?.[1]}, ×${a.statMultiplier}) — ${a.evolutionHint}</div>`
+        ).join('')}
+      </div>
+      <div class="scaffold-row"><span class="scaffold-label">HOOKS</span>
+        ${(sc.inferenceHooks ?? []).map(h =>
+          `<div class="scaffold-hook">${h.id}: ${h.trigger?.key} ${h.trigger?.type === 'counter_gte' ? '≥' : '='} ${h.trigger?.value} → "${h.contextNote}"</div>`
+        ).join('')}
+      </div>
+    `;
+    // Push scaffold into lore-engine memory if this is the active experience
+    if (activeExperience?.id === expId) loadScaffold(FORGE_BASE, expId);
+  } catch { /* preview is optional */ }
+}
+
+scaffoldGenBtn.addEventListener('click', async () => {
+  const expId = activeExperience?.id ?? 'latentcrawl';
+  if (!profileId) { scaffoldStatusEl.textContent = 'log in first'; return; }
+  scaffoldGenBtn.disabled = true;
+  scaffoldStatusEl.textContent = 'queuing…';
+  scaffoldStatusEl.dataset.state = 'queued';
+  try {
+    await generateScaffold(FORGE_BASE, expId, profileId);
+    scaffoldStatusEl.textContent = 'generating…';
+    setTimeout(() => _loadScaffoldUI(expId), 3000);
+  } catch (e) {
+    scaffoldStatusEl.textContent = `error: ${e.message}`;
+    scaffoldStatusEl.dataset.state = 'error';
+  } finally { scaffoldGenBtn.disabled = false; }
+});
+
+function openLibraryPanel() {  // override to also load scaffold status
+  libraryPanelEl.dataset.open = 'true';
+  loadLore();
+  loreTextarea.focus();
+  const expId = activeExperience?.id ?? 'latentcrawl';
+  _loadScaffoldUI(expId);
+}
 
 // ─────────────────────────────────────────────
 // ENTITIES
@@ -1528,9 +1604,15 @@ async function spawnFromPrompt(promptText) {
   if (!promptText || !profileId) return;
   let job;
   try {
+    const spawnBody = {
+      prompt:          promptText,
+      profile_id:      profileId,
+      prompt_modifier: getActivePromptModifier() || undefined,
+      stat_tier:       getStatTier(promptText),
+    };
     const res = await fetch(`${FORGE_BASE}/jobs`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: promptText, profile_id: profileId }),
+      body: JSON.stringify(spawnBody),
     });
     if (!res.ok) throw new Error(`forge returned ${res.status}`);
     job = await res.json();
@@ -2838,6 +2920,34 @@ document.getElementById('terra-save-btn').addEventListener('click', async () => 
   } catch (e) {
     setStatus(document.getElementById('terra-status'), 'error', e.message);
   }
+});
+
+// ─────────────────────────────────────────────
+// LORE ENGINE — TRIGGER LISTENERS
+// ─────────────────────────────────────────────
+
+function _onInferenceFired(hooks) {
+  for (const hook of hooks) {
+    // Surface world narrative note in the terminal status bar with a timed reset
+    const prev = termStatus.textContent;
+    termStatus.textContent = `[WORLD] ${hook.contextNote}`;
+    termStatus.dataset.state = 'world';
+    setTimeout(() => {
+      termStatus.textContent = prev;
+      termStatus.dataset.state = '';
+    }, 5000);
+  }
+}
+
+on(EVENTS.FLAG_CHANGED, () => {
+  const s = snapshotState();
+  const fired = checkScaffoldTriggers(s.flags, s.counters);
+  if (fired.length) _onInferenceFired(fired);
+});
+on(EVENTS.COUNTER_CHANGED, () => {
+  const s = snapshotState();
+  const fired = checkScaffoldTriggers(s.flags, s.counters);
+  if (fired.length) _onInferenceFired(fired);
 });
 
 // ─────────────────────────────────────────────

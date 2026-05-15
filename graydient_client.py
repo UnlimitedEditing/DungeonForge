@@ -178,3 +178,31 @@ def extract_image_url(render_data: dict) -> Optional[str]:
     if media:
         return media[0].get("url")
     return img.get("url")
+
+
+def llm_query(prompt: str, system_prompt: str, api_key: str, persona: str = "Polly") -> str:
+    """
+    Synchronous LLM chat call against Graydient /chat/ endpoint.
+    Returns the response_text string from the LLM.
+
+    persona: Graydient persona slug (e.g. "Polly", "kimi-k2", "qwen3-235b").
+    system_prompt is prepended to the prompt since the Chat API doesn't have a
+    separate system_prompt field — we include it as context before the user prompt.
+    sync:true returns the result inline rather than via callback webhook.
+    """
+    full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/vnd.api+json",
+        "Accept": "application/vnd.api+json",
+    }
+    payload = {
+        "persona": persona,
+        "prompt":  full_prompt,
+        "sync":    True,
+    }
+    log.info("llm_query persona=%s prompt=%.80s", persona, full_prompt)
+    resp = requests.post(_url("chat/"), headers=headers, json=payload, timeout=120)
+    resp.raise_for_status()
+    data = resp.json()
+    return data.get("response_text") or str(data)
