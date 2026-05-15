@@ -8,17 +8,38 @@
 :root {
   --bg:           #07060a;
   --bg-deep:      #000;
+  --bg-card:      #0c0a06;
+  --bg-card-2:    #050300;
   --amber:        #d99a2b;   /* primary phosphor */
   --amber-hot:    #ffc04a;   /* hover / focus */
   --amber-dim:    #6a4a18;   /* secondary text */
+  --amber-glow:   rgba(217,154,43,0.55);
   --blood:        #8b1a1a;   /* hostile accent */
+  --blood-hot:    #c63030;
   --rust:         #4a2818;   /* deep frame */
+  --rust-light:   #6a3820;
   --bone:         #d8c6a0;   /* parchment text */
   --steel:        #2a2620;   /* HUD plate */
   --rivet:        #5a4a30;
   --rivet-shadow: #1a1208;
   --scanline:     rgba(0,0,0,0.45);
   --ok:           #6ad96a;
+  --warn:         #ffb030;
+  --info:         #4a7add;
+  --legendary:    #dd8800;
+  --rare:         #4a7add;
+  --uncommon:     #4aaa4a;
+  --common:       #a89870;
+  /* spacing scale */
+  --s-1: 2px;
+  --s-2: 4px;
+  --s-3: 6px;
+  --s-4: 8px;
+  --s-5: 12px;
+  --s-6: 16px;
+  --s-7: 24px;
+  --s-8: 36px;
+  --s-9: 56px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -2157,3 +2178,183 @@ button:disabled { opacity: 0.4; cursor: wait; }
   letter-spacing: 0.05em;
 }
 .uc-refresh-btn:hover { color: var(--amber); border-color: var(--amber); }
+
+/* ====================================================================
+   DESIGN SYSTEM — badges, frames, bars, buttons
+   ==================================================================== */
+
+/* ---------- Badges ---------- */
+.badge {
+  display: inline-block;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  letter-spacing: 0.08em;
+  padding: 2px 7px;
+  border: 1px solid currentColor;
+  text-transform: uppercase;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.badge-amber  { color: var(--amber); }
+.badge-dim    { color: var(--amber-dim); }
+.badge-ok     { color: var(--ok); }
+.badge-hot    { color: var(--amber-hot); }
+.badge-blood  { color: var(--blood-hot); }
+.badge-rare   { color: var(--rare); }
+.badge-legend { color: var(--legendary); }
+.badge-warn   { color: var(--warn); }
+.badge-info   { color: var(--info); }
+
+/* ---------- Terminal frame (.tframe) — amber-bordered ---------- */
+.tframe {
+  background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg-card-2) 100%);
+  border: 2px solid var(--amber-dim);
+  box-shadow:
+    inset 0 0 0 1px var(--bg-deep),
+    inset 0 0 40px rgba(217,154,43,0.06),
+    0 0 0 6px rgba(0,0,0,0.6),
+    0 0 60px rgba(217,154,43,0.15);
+}
+.tframe-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--s-4) var(--s-6);
+  background: linear-gradient(90deg, var(--rust) 0%, transparent 100%);
+  border-bottom: 1px solid var(--amber-dim);
+}
+.tframe-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--amber-hot);
+  text-shadow: 0 0 6px var(--amber);
+}
+.tframe-body { padding: var(--s-7) var(--s-7) var(--s-8); }
+
+/* ---------- Rust frame (.rframe) — forge-bordered ---------- */
+.rframe {
+  background: linear-gradient(170deg, #0d0800 0%, #050200 100%);
+  border: 2px solid var(--rust);
+  box-shadow:
+    inset 0 0 40px rgba(255,80,10,0.04),
+    0 0 0 6px rgba(0,0,0,0.7),
+    0 0 60px rgba(200,80,10,0.15);
+}
+.rframe-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--s-4) var(--s-6);
+  background: linear-gradient(90deg, rgba(74,24,8,0.8) 0%, transparent 100%);
+  border-bottom: 1px solid var(--rust);
+}
+.rframe-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--amber-hot);
+}
+.rframe-body { padding: var(--s-6) var(--s-7) var(--s-7); }
+
+/* ---------- Sigil cell (hub-grid icon tiles) ---------- */
+.sigil-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-2);
+  padding: var(--s-6) var(--s-5) var(--s-5);
+  border: 1px solid var(--rust);
+  cursor: pointer;
+  transition: border-color 100ms, background 100ms;
+  min-height: 90px;
+}
+.sigil-cell:not(.sigil-cell-sealed):hover {
+  border-color: var(--amber-dim);
+  background: rgba(255,120,20,0.07);
+}
+.sigil-cell:not(.sigil-cell-sealed):active { transform: translateY(1px); }
+.sigil-cell-sealed { opacity: 0.28; cursor: not-allowed; }
+.sigil-mark {
+  font-size: 20px;
+  color: var(--amber-dim);
+  line-height: 1;
+  margin-bottom: var(--s-1);
+}
+.sigil-cell:not(.sigil-cell-sealed):hover .sigil-mark { color: var(--amber); }
+.sigil-name {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 6.5px;
+  letter-spacing: 0.07em;
+  color: var(--amber);
+  line-height: 1.4;
+}
+.sigil-room {
+  font-family: 'VT323', monospace;
+  font-size: 14px;
+  color: var(--amber-dim);
+  line-height: 1.25;
+  flex: 1;
+}
+
+/* ---------- Bar fill variants ---------- */
+.bar-fill.hp   { background: var(--ok); }
+.bar-fill.xp   { background: var(--amber); }
+.bar-fill.mp   { background: var(--info); }
+.bar-fill.rage { background: var(--blood-hot); }
+
+/* ---------- Button variants ---------- */
+.btn {
+  background: var(--amber);
+  color: var(--bg-deep);
+  border: none;
+  padding: var(--s-3) var(--s-7);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: background 80ms, transform 80ms;
+}
+.btn:hover  { background: var(--amber-hot); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: 0.4; cursor: wait; }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--amber-dim);
+  border: 1px solid var(--rust);
+  padding: var(--s-3) var(--s-5);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: color 80ms, border-color 80ms;
+}
+.btn-ghost:hover { color: var(--amber); border-color: var(--amber-dim); }
+
+.btn-quiet {
+  background: none;
+  border: 1px solid var(--rust);
+  color: var(--amber-dim);
+  font-family: 'VT323', monospace;
+  font-size: 16px;
+  padding: var(--s-2) var(--s-5);
+  cursor: pointer;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.btn-quiet:hover:not(:disabled) { color: var(--amber); border-color: var(--amber); }
+.btn-quiet:disabled { opacity: 0.4; cursor: default; }
+
+.btn-danger {
+  background: transparent;
+  color: var(--blood-hot);
+  border: 1px solid var(--blood);
+  padding: var(--s-3) var(--s-5);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background 80ms, color 80ms;
+}
+.btn-danger:hover { background: var(--blood); color: var(--bone); }
