@@ -905,15 +905,38 @@ tick();
 async function applyIcons() {
   try {
     const { icon } = await import('./icons.js');
+
+    // Close buttons — replace text with SVG + label
     document.querySelectorAll(
       '.library-close-btn, .entities-close-btn, .inventory-close-btn, ' +
       '.picker-close-btn, .terra-close-btn, .undercroft-close-btn, ' +
       '.hub-sub-close-btn, #pose-close-btn'
     ).forEach(btn => {
-      btn.innerHTML = icon('close', 12) + ' CLOSE';
+      btn.innerHTML = `<span class="panel-title-icon">${icon('close', 11)}</span> CLOSE`;
       btn.style.display = 'inline-flex';
       btn.style.alignItems = 'center';
-      btn.style.gap = '5px';
+      btn.style.gap = '4px';
+    });
+
+    // Panel title icons — prepend matching icon to each panel header title
+    const TITLE_ICONS = [
+      ['.library-title',                      'book'],
+      ['.entities-title',                     'user'],
+      ['.undercroft-title',                   'terminal'],
+      ['.terminal-title',                     'forge'],
+      ['.forge-title',                        'portal'],
+      ['.inventory-title',                    'bag'],
+      ['.picker-title',                       'portal'],
+      ['.terra-title',                        'world'],
+      ['.pose-title',                         'image'],
+      ['#arcanum-panel .hub-sub-title',       'scroll'],
+      ['#machinarium-panel .hub-sub-title',   'settings'],
+      ['#substance-panel .hub-sub-title',     'potion'],
+    ];
+    TITLE_ICONS.forEach(([sel, name]) => {
+      document.querySelectorAll(sel).forEach(el => {
+        el.innerHTML = `<span class="panel-title-icon">${icon(name, 12)}</span>${el.textContent}`;
+      });
     });
   } catch (_) {}
 }

@@ -20,6 +20,7 @@ import {
   hitFlashEl, showLevelUpNotification,
   escapeHtml,
 } from './hud.js';
+import { icon } from './icons.js';
 
 const FORGE_BASE   = window.location.origin;
 const PICKUP_RANGE = 1.2;
@@ -254,12 +255,89 @@ export const inventoryPanelEl = document.getElementById('inventory-panel');
 const invStatsDisplay  = document.getElementById('inv-stats-display');
 const equipmentSlotsEl = document.getElementById('equipment-slots');
 const inventoryGridEl  = document.getElementById('inventory-grid');
+const invDetailEl      = document.getElementById('inv-detail');
 
 document.getElementById('inventory-close-btn').addEventListener('click', closeInventory);
+
+// ─────────────────────────────────────────────
+// ITEM TYPE → ICON NAME
+// ─────────────────────────────────────────────
+
+const ITEM_ICON = {
+  weapon:     'sword',
+  armor:      'shield',
+  accessory:  'gem',
+  consumable: 'potion',
+  potion:     'potion',
+  scroll:     'scroll',
+  key:        'key',
+  currency:   'coin',
+  mat:        'spark',
+};
+
+const RARITY_COLOR = {
+  legendary: 'var(--legendary)',
+  rare:      'var(--rare)',
+  uncommon:  'var(--uncommon)',
+  common:    'var(--common)',
+};
+
+// ─────────────────────────────────────────────
+// ITEM DETAIL PANEL
+// ─────────────────────────────────────────────
+
+function renderItemDetail(item, bagIndex) {
+  if (!invDetailEl) return;
+  if (!item) {
+    invDetailEl.innerHTML = `
+      <div class="card-label">// SELECT ITEM</div>
+      <div class="inv-detail-empty">click an item to inspect</div>`;
+    return;
+  }
+
+  const ico       = ITEM_ICON[item.subtype] ?? ITEM_ICON[item.type] ?? 'gem';
+  const rColor    = RARITY_COLOR[item.rarity ?? 'common'] ?? 'var(--amber-dim)';
+  const statHtml  = item.stats
+    ? Object.entries(item.stats)
+        .filter(([, v]) => v > 0)
+        .map(([k, v]) => `${k.replace('_', ' ')} <span style="color:var(--amber)">+${v}</span>`)
+        .join(' &nbsp;·&nbsp; ')
+    : '';
+
+  const hasBagIdx = typeof bagIndex === 'number';
+  const canEquip  = hasBagIdx && ['weapon', 'armor', 'accessory'].includes(item.type);
+  const canUse    = hasBagIdx && item.type === 'consumable';
+
+  invDetailEl.innerHTML = `
+    <div class="card-label">// SELECTED</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+      <div class="inv-detail-icon-cell" style="color:${rColor}">${icon(ico, 22)}</div>
+      <div style="min-width:0">
+        <div class="inv-detail-badge" style="color:${rColor}">${item.rarity ?? 'common'} · ${item.subtype || item.type}</div>
+        <div class="inv-detail-name">${escapeHtml(item.name)}</div>
+      </div>
+    </div>
+    ${statHtml ? `<div class="inv-detail-stats">${statHtml}</div>` : ''}
+    <div class="inv-detail-actions">
+      ${canEquip ? `<button class="btn-ghost" id="idb-equip">EQUIP</button>` : ''}
+      ${canUse   ? `<button class="btn-quiet" id="idb-use">USE</button>` : ''}
+      ${hasBagIdx ? `<button class="btn-danger" id="idb-drop">DROP</button>` : ''}
+    </div>`;
+
+  if (canEquip)  document.getElementById('idb-equip').addEventListener('click', () => { equipFromBag(bagIndex); renderItemDetail(null); });
+  if (canUse)    document.getElementById('idb-use').addEventListener('click',   () => { useConsumable(bagIndex); renderItemDetail(null); });
+  if (hasBagIdx) document.getElementById('idb-drop').addEventListener('click',  () => {
+    player.inventory.splice(bagIndex, 1);
+    savePlayerStats();
+    renderInventory();
+    renderItemDetail(null);
+  });
+}
 
 export function openInventory() {
   inventoryPanelEl.dataset.open = 'true';
   if (controls.isLocked) controls.unlock();
+  renderItemDetail(null);
   renderInventory();
 }
 
@@ -340,12 +418,7 @@ function formatItemStats(stats) {
 function onItemClick(index) {
   const item = player.inventory[index];
   if (!item) return;
-
-  if (item.type === 'consumable') {
-    useConsumable(index);
-  } else if (['weapon','armor','accessory'].includes(item.type)) {
-    equipFromBag(index);
-  }
+  renderItemDetail(item, index);
 }
 
 function equipFromBag(index) {

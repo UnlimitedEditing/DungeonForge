@@ -135,6 +135,19 @@ export function refreshHud() {
   hudPos.textContent = `${p.x.toFixed(1)},${p.z.toFixed(1)}`;
 }
 
+const JOB_BADGE = {
+  queued:     'badge badge-dim',
+  rendering:  'badge badge-hot',
+  processing: 'badge badge-hot',
+  done:       'badge badge-ok',
+  failed:     'badge badge-blood',
+};
+const ANIM_BADGE = {
+  done:    'badge badge-ok',
+  failed:  'badge badge-blood',
+  pending: 'badge badge-dim',
+};
+
 export function refreshJobList() {
   const active = [...sprites.values()].filter(e => !e.historical);
   if (active.length === 0) { jobsListEl.innerHTML = '<div class="muted">no jobs.</div>'; return; }
@@ -145,14 +158,16 @@ export function refreshJobList() {
       for (const [vt, vj] of Object.entries(e.variants)) {
         const s = vj.status;
         const label = s === 'done' ? vt : s === 'failed' ? `${vt}!` : `${vt}…`;
-        variantTags += `<span class="job-anim" data-s="${s === 'done' ? 'done' : s === 'failed' ? 'failed' : 'pending'}">${label}</span>`;
+        const cls = ANIM_BADGE[s === 'done' ? 'done' : s === 'failed' ? 'failed' : 'pending'];
+        variantTags += `<span class="${cls}">${label}</span>`;
       }
     }
+    const statusCls = JOB_BADGE[e.status] ?? 'badge badge-dim';
     rows.push(`<div class="job-row">
       <span class="job-id">${e.jobId}</span>
       <span class="job-prompt">${escapeHtml(e.prompt)}</span>
       ${variantTags}
-      <span class="job-status" data-s="${e.status}">${e.status}</span>
+      <span class="${statusCls}">${e.status}</span>
     </div>`);
   }
   jobsListEl.innerHTML = rows.join('');
