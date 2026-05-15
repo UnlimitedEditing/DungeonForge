@@ -64,7 +64,6 @@ import {
   openUndercroftPanel, closeUndercroftPanel,
   syncPickerExperience, setLaunchExperience,
 } from './hub-panels.js';
-import { icon } from './icons.js';
 
 // ─────────────────────────────────────────────
 // CONSTANTS
@@ -903,17 +902,20 @@ tick();
 // BOOT
 // ─────────────────────────────────────────────
 
-function applyIcons() {
-  document.querySelectorAll(
-    '.library-close-btn, .entities-close-btn, .inventory-close-btn, ' +
-    '.picker-close-btn, .terra-close-btn, .undercroft-close-btn, ' +
-    '.hub-sub-close-btn, #pose-close-btn'
-  ).forEach(btn => {
-    btn.innerHTML = icon('close', 12) + ' CLOSE';
-    btn.style.display = 'inline-flex';
-    btn.style.alignItems = 'center';
-    btn.style.gap = '5px';
-  });
+async function applyIcons() {
+  try {
+    const { icon } = await import('./icons.js');
+    document.querySelectorAll(
+      '.library-close-btn, .entities-close-btn, .inventory-close-btn, ' +
+      '.picker-close-btn, .terra-close-btn, .undercroft-close-btn, ' +
+      '.hub-sub-close-btn, #pose-close-btn'
+    ).forEach(btn => {
+      btn.innerHTML = icon('close', 12) + ' CLOSE';
+      btn.style.display = 'inline-flex';
+      btn.style.alignItems = 'center';
+      btn.style.gap = '5px';
+    });
+  } catch (_) {}
 }
 
 applyIcons();
