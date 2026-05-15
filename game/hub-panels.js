@@ -28,7 +28,7 @@ import {
   checkTriggers as checkScaffoldTriggers,
 } from './lore-engine.js';
 import { off, on } from './events.js';
-import { snapshotState } from './world-state.js';
+import { snapshot as snapshotState } from './world-state.js';
 import { getLoadedTriggers } from './triggers.js';
 import {
   fetchExperiences, fetchExperience, createFork, saveExperience,
