@@ -46,6 +46,7 @@ import {
   spawnItemDrop, updateWorldItems, pickupItem, onPlayerDeath,
   savePlayerStats, openInventory, closeInventory, renderInventory,
   inventoryPanelEl,
+  fireProjectile, updateProjectiles, updateDecals, clearProjectilesAndDecals,
 } from './combat.js';
 import {
   spawnFromPrompt, updateEntities, pulsePlaceholders,
@@ -195,6 +196,7 @@ function returnToForge() {
   crosshair.dataset.visible = 'false';
   setHudInWorld(false);
   updateTargetFrame(null);
+  clearProjectilesAndDecals();
   document.getElementById('minimap').dataset.visible = 'false';
   showForgeHub();
 }
@@ -604,6 +606,10 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     meleeAttack();
   }
+  if (e.code === 'KeyE' && appMode === 'room') {
+    e.preventDefault();
+    fireProjectile();
+  }
   if (e.code === 'KeyF' && appMode === 'room' && controls.isLocked) {
     e.preventDefault();
     pickupItem();
@@ -916,6 +922,8 @@ function tick() {
     updateMovement(dt);
     updateEntities(dt);
     updateWorldItems(t);
+    updateProjectiles(dt);
+    updateDecals(t);
     pulsePlaceholders(now);
     _updateTargetFrameNearby();
     renderer.render(roomScene, roomCamera);

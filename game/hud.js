@@ -122,6 +122,7 @@ export function addCombatLine(text, type = 'dealt') {
 export function initActionBar() {
   const slots = {
     'ab-q-icon':   icon('sword',  22),
+    'ab-e-icon':   icon('bow',    22),
     'ab-f-icon':   icon('gem',    22),
     'ab-i-icon':   icon('bag',    22),
     'ab-esc-icon': icon('portal', 22),
