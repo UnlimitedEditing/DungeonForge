@@ -43,11 +43,131 @@ export function getEquipBonus(stat) {
 // COMBAT
 // ─────────────────────────────────────────────
 
+// ─────────────────────────────────────────────
+// MELEE VFX — swing arc + strike flash
+// ─────────────────────────────────────────────
+
+function _swingArc() {
+  const origin = roomCamera.position.clone();
+  origin.y = 0.5;
+
+  const forward = new THREE.Vector3();
+  roomCamera.getWorldDirection(forward);
+  forward.y = 0;
+  forward.normalize();
+
+  const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+  const range    = liveMeleeRange;
+  const halfArc  = Math.PI * 0.42;   // ±76°
+  const segments = 10;
+
+  // Fan mesh (filled area)
+  const verts = [origin.x, origin.y, origin.z];
+  for (let i = 0; i <= segments; i++) {
+    const a   = -halfArc + (i / segments) * halfArc * 2;
+    const cos = Math.cos(a), sin = Math.sin(a);
+    verts.push(
+      origin.x + (forward.x * cos + right.x * sin) * range,
+      origin.y,
+      origin.z + (forward.z * cos + right.z * sin) * range,
+    );
+  }
+  const indices = [];
+  for (let i = 1; i <= segments; i++) indices.push(0, i, i + 1);
+
+  const fanGeo = new THREE.BufferGeometry();
+  fanGeo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  fanGeo.setIndex(indices);
+  const fanMat = new THREE.MeshBasicMaterial({
+    color: 0xffc04a, transparent: true, opacity: 0.22,
+    side: THREE.DoubleSide, depthWrite: false,
+  });
+  const fan = new THREE.Mesh(fanGeo, fanMat);
+  roomScene.add(fan);
+
+  // Arc outline
+  const arcPts = [];
+  for (let i = 0; i <= segments; i++) {
+    const a   = -halfArc + (i / segments) * halfArc * 2;
+    const cos = Math.cos(a), sin = Math.sin(a);
+    arcPts.push(new THREE.Vector3(
+      origin.x + (forward.x * cos + right.x * sin) * range,
+      origin.y,
+      origin.z + (forward.z * cos + right.z * sin) * range,
+    ));
+  }
+  const arcGeo = new THREE.BufferGeometry().setFromPoints(arcPts);
+  const arcMat = new THREE.LineBasicMaterial({ color: 0xffc04a, transparent: true, opacity: 0.9 });
+  const arc    = new THREE.Line(arcGeo, arcMat);
+  roomScene.add(arc);
+
+  // Fade out over 220 ms
+  const t0 = performance.now();
+  function fade() {
+    const p = (performance.now() - t0) / 220;
+    if (p >= 1) {
+      roomScene.remove(fan, arc);
+      fanGeo.dispose(); fanMat.dispose();
+      arcGeo.dispose(); arcMat.dispose();
+      return;
+    }
+    const q = 1 - p;
+    fanMat.opacity = 0.22 * q;
+    arcMat.opacity = 0.9  * q;
+    requestAnimationFrame(fade);
+  }
+  requestAnimationFrame(fade);
+}
+
+function _strikeFlash(worldPos) {
+  // Point light burst
+  const light = new THREE.PointLight(0xffc04a, 5.0, 2.8, 2.0);
+  light.position.set(worldPos.x, 1.1, worldPos.z);
+  roomScene.add(light);
+
+  // Flying sparks
+  const sparks = [];
+  for (let i = 0; i < 7; i++) {
+    const sGeo = new THREE.SphereGeometry(0.045, 4, 4);
+    const sMat = new THREE.MeshBasicMaterial({ color: 0xffc04a, transparent: true });
+    const s    = new THREE.Mesh(sGeo, sMat);
+    const ang  = (i / 7) * Math.PI * 2;
+    s.position.set(worldPos.x + Math.cos(ang) * 0.15, 0.9 + Math.random() * 0.3, worldPos.z + Math.sin(ang) * 0.15);
+    s.userData.vel = new THREE.Vector3(Math.cos(ang) * 2.5, 1.5 + Math.random() * 2, Math.sin(ang) * 2.5);
+    roomScene.add(s);
+    sparks.push({ mesh: s, geo: sGeo, mat: sMat });
+  }
+
+  const t0 = performance.now();
+  let prev = t0;
+  function animate() {
+    const now  = performance.now();
+    const dt   = (now - prev) / 1000;
+    prev = now;
+    const prog = (now - t0) / 300;
+    if (prog >= 1) {
+      roomScene.remove(light);
+      for (const s of sparks) { roomScene.remove(s.mesh); s.geo.dispose(); s.mat.dispose(); }
+      return;
+    }
+    light.intensity = 5 * (1 - prog);
+    for (const s of sparks) {
+      s.mesh.position.addScaledVector(s.mesh.userData.vel, dt);
+      s.mesh.userData.vel.y -= 6 * dt;
+      s.mat.opacity = 1 - prog;
+    }
+    requestAnimationFrame(animate);
+  }
+  requestAnimationFrame(animate);
+}
+
 export function meleeAttack() {
   if (!controls.isLocked || appMode !== 'room') return;
   const now = performance.now() / 1000;
   if (now - lastPlayerAttack < livePlayerAttackCd) return;
   setLastPlayerAttack(now);
+
+  _swingArc();   // always show the swing visual
 
   const playerPos = roomCamera.position;
   let nearest = null, nearestDist = liveMeleeRange;
@@ -66,6 +186,7 @@ export function meleeAttack() {
   nearest.stats.hp = Math.max(0, nearest.stats.hp - dmg);
   spawnDamageNumber(nearest.mesh.position, dmg, false);
   refreshEntityHpBar(nearest);
+  _strikeFlash(nearest.mesh.position);
   addCombatLine(`you strike ${(nearest.prompt || 'enemy').toLowerCase().slice(0, 24)} for ${dmg}`, 'dealt');
   if (nearest.stats.hp <= 0) killEntity(nearest);
 }
@@ -462,9 +583,162 @@ function useConsumable(index) {
   if (!item) return;
   if (item.stats?.hp_restore) {
     player.hp = Math.min(player.maxHp, player.hp + item.stats.hp_restore);
+    addCombatLine(`consumed ${escapeHtml(item.name)} · +${item.stats.hp_restore} HP`, 'heal');
   }
   player.inventory.splice(index, 1);
   savePlayerStats();
   updatePlayerHud();
   renderInventory();
+}
+
+// =====================================================================
+// PROJECTILE SYSTEM
+// =====================================================================
+
+const PROJ_SPEED    = 14;
+const PROJ_MAX_DIST = 20;
+const PROJ_COOLDOWN = 0.55;   // seconds between shots
+const PROJ_DAMAGE   = 12;
+const MAX_DECALS    = 24;
+
+const _projectiles = [];
+const _decals      = [];
+let   _lastShot    = 0;
+
+// ─── Damage decal (floor splat where projectile lands) ────────────────
+
+function _spawnDecal(pos, isBlood = false) {
+  const size = 0.18 + Math.random() * 0.14;
+  const geo  = new THREE.CircleGeometry(size, 8);
+  const mat  = new THREE.MeshBasicMaterial({
+    color: isBlood ? 0x5a0a0a : 0x8a5a10,
+    transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set(pos.x, 0.012, pos.z);
+  roomScene.add(mesh);
+  _decals.push({ mesh, geo, mat, born: performance.now() / 1000 });
+
+  if (_decals.length > MAX_DECALS) {
+    const old = _decals.shift();
+    roomScene.remove(old.mesh);
+    old.geo.dispose(); old.mat.dispose();
+  }
+}
+
+// ─── Projectile impact flash ──────────────────────────────────────────
+
+function _projImpact(pos, hitEntity) {
+  const col   = hitEntity ? 0xff6633 : 0xffc04a;
+  const light = new THREE.PointLight(col, 4.0, 2.5, 2.0);
+  light.position.set(pos.x, Math.max(pos.y, 0.5), pos.z);
+  roomScene.add(light);
+  const t0 = performance.now();
+  (function fade() {
+    const p = (performance.now() - t0) / 200;
+    if (p >= 1) { roomScene.remove(light); return; }
+    light.intensity = 4 * (1 - p);
+    requestAnimationFrame(fade);
+  })();
+  _spawnDecal(pos, !!hitEntity);
+}
+
+// ─── Fire a projectile ────────────────────────────────────────────────
+
+export function fireProjectile() {
+  if (!controls.isLocked || appMode !== 'room') return;
+  const now = performance.now() / 1000;
+  if (now - _lastShot < PROJ_COOLDOWN) return;
+  _lastShot = now;
+
+  const origin = roomCamera.position.clone();
+  const dir    = new THREE.Vector3();
+  roomCamera.getWorldDirection(dir);
+
+  // Start slightly in front of camera at eye height
+  origin.addScaledVector(dir, 0.4);
+  origin.y = Math.max(0.6, roomCamera.position.y - 0.1);
+
+  const geo  = new THREE.SphereGeometry(0.07, 6, 4);
+  const mat  = new THREE.MeshBasicMaterial({ color: 0xffc04a });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.copy(origin);
+
+  const glow = new THREE.PointLight(0xffc04a, 1.8, 1.8, 2.0);
+  glow.position.copy(origin);
+
+  roomScene.add(mesh, glow);
+  _projectiles.push({ mesh, glow, geo, mat, dir: dir.clone(), traveled: 0 });
+}
+
+// ─── Per-frame projectile update (call from main loop) ───────────────
+
+export function updateProjectiles(dt) {
+  for (let i = _projectiles.length - 1; i >= 0; i--) {
+    const p    = _projectiles[i];
+    const move = PROJ_SPEED * dt;
+    p.mesh.position.addScaledVector(p.dir, move);
+    p.glow.position.copy(p.mesh.position);
+    p.traveled += move;
+
+    let remove = false;
+
+    // Entity collision (sphere test, radius 0.55)
+    for (const e of sprites.values()) {
+      if (!e.mesh || e.aiState === 'dead' || !e.stats) continue;
+      if (e.mesh.userData.isPlaceholder) continue;
+      if (p.mesh.position.distanceTo(e.mesh.position) < 0.55) {
+        const def = e.stats.defense ?? 0;
+        const dmg = Math.max(1, PROJ_DAMAGE + (player.attack >> 1) - def + Math.floor(Math.random() * 5));
+        e.stats.hp = Math.max(0, e.stats.hp - dmg);
+        spawnDamageNumber(e.mesh.position, dmg, false);
+        refreshEntityHpBar(e);
+        addCombatLine(`bolt hits ${(e.prompt || 'enemy').toLowerCase().slice(0, 22)} for ${dmg}`, 'dealt');
+        _projImpact(p.mesh.position.clone(), true);
+        if (e.stats.hp <= 0) killEntity(e);
+        remove = true;
+        break;
+      }
+    }
+
+    // Max range — spawn wall decal at last position
+    if (!remove && p.traveled >= PROJ_MAX_DIST) {
+      _projImpact(p.mesh.position.clone(), false);
+      remove = true;
+    }
+
+    if (remove) {
+      roomScene.remove(p.mesh, p.glow);
+      p.geo.dispose(); p.mat.dispose();
+      _projectiles.splice(i, 1);
+    }
+  }
+}
+
+// ─── Decal fade (call from main loop) ────────────────────────────────
+
+export function updateDecals(t) {
+  const FADE_START = 10, FADE_DUR = 5;
+  for (const d of _decals) {
+    const age = t - d.born;
+    if (age > FADE_START) {
+      d.mat.opacity = 0.55 * Math.max(0, 1 - (age - FADE_START) / FADE_DUR);
+    }
+  }
+}
+
+// ─── Cleanup on returning to forge ───────────────────────────────────
+
+export function clearProjectilesAndDecals() {
+  for (const p of _projectiles) {
+    roomScene.remove(p.mesh, p.glow);
+    p.geo.dispose(); p.mat.dispose();
+  }
+  _projectiles.length = 0;
+  for (const d of _decals) {
+    roomScene.remove(d.mesh);
+    d.geo.dispose(); d.mat.dispose();
+  }
+  _decals.length = 0;
 }
