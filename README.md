@@ -1,130 +1,128 @@
-# Dungeon-Forge :: Vertical Slice
+# DungeonForge
 
-A minimal first-person controller and test room that spawns AI-rendered sprites
-via the Graydient SDK. Click SPAWN, describe a creature, watch it materialise
-in the dungeon.
+A procedurally generated dungeon crawler with an AI rendering pipeline. Describe a creature, watch it materialise. Every dungeon is different. Every creature is yours.
 
-This is the bottom of the stack we discussed — Forge + game, no scheduler,
-no profile, no bestiary persistence. The point is to confirm the render →
-clean → stage loop works end to end and to expose the real-world latency
-characteristics so we can design the layers above.
+Built on [Graydient](https://graydient.ai) for AI rendering, [Three.js](https://threejs.org) for 3D, and [FastAPI](https://fastapi.tiangolo.com) for the server.
 
-## Setup
+---
 
+## Getting started
+
+You need a [Graydient API key](https://graydient.ai) and Python 3.8+.
+
+### Launcher (recommended)
+
+The launcher handles dependencies, API key setup, and opens the game automatically.
+
+**Windows** — double-click `launch.bat`
+
+**macOS**
 ```bash
-# 1. Install deps
-pip install -r requirements.txt
-
-# 2. Set your API key (put it in a .env file beside forge.py)
-echo "GRAYDIENT_KEY=your-key-here" > .env
+chmod +x launch.sh   # first time only
+./launch.sh
 ```
 
-The Graydient SDK is loaded directly from `D:\Graydient Exchange\Source API` at runtime —
-no install step needed. Override the path with the `GRAYDIENT_SDK_PATH` env var if your
-copy lives elsewhere.
+**Linux**
+```bash
+# tkinter may need installing first
+sudo apt install python3-tk   # Debian / Ubuntu
+sudo dnf install python3-tkinter   # Fedora
 
-First time you run, `rembg` will download its segmentation model
-(~170 MB, one-time). Subsequent runs are fast.
+chmod +x launch.sh
+./launch.sh
+```
 
-## Run
+The launcher window will prompt for your API key on first run, install dependencies, start the server, and open your browser.
 
+---
+
+### Manual setup (fallback)
+
+If the launcher doesn't work, run these steps in a terminal.
+
+**1. Install Python**
+
+Download from [python.org](https://www.python.org/downloads/). During install on Windows, check **Add Python to PATH**.
+
+If Python is installed but not on PATH (Windows), find it and add it manually:
+```powershell
+# Find your Python install
+ls "$env:LOCALAPPDATA\Programs\Python"
+
+# Then add to user PATH via:
+# Settings → System → Advanced system settings → Environment Variables
+# Edit the "Path" user variable and add:
+#   C:\Users\<you>\AppData\Local\Programs\Python\Python3xx
+#   C:\Users\<you>\AppData\Local\Programs\Python\Python3xx\Scripts
+```
+
+**2. Install dependencies**
+```bash
+pip install -r requirements.txt
+```
+
+**3. Set your API key**
+
+Create a file named `.env` in the project folder:
+```
+GRAYDIENT_KEY=your-key-here
+```
+
+**4. Run**
 ```bash
 python forge.py
 ```
 
-Then open <http://127.0.0.1:8000/> in a browser. That's it — the Forge
-serves the game from the same origin, so no CORS dance, no second server.
+Then open <http://127.0.0.1:8000> in your browser. The first render will also download the `rembg` background-removal model (~170 MB, one-time).
+
+---
 
 ## How to play
 
-1. Page loads with the spawn terminal open and pointer free.
-2. Type a creature description and hit SPAWN (or Enter).
-3. A pulsing amber placeholder drops into the room while the render is in
-   flight. The job list shows live status: `queued → rendering → processing → done`.
-4. Click the viewport to lock the cursor and enter the room. WASD to move,
-   mouse to look.
-5. <kbd>TAB</kbd> or <kbd>ESC</kbd> reopens the terminal — you can queue more
-   spawns while existing ones are still rendering. The pool builds up.
+1. Log in or create a profile from the setup screen. Your profile stores your API key encrypted — you only enter it once.
+2. Enter The Forge. This is your hub between expeditions.
+3. From the Forge terminal, describe a creature and hit **SPAWN**. A pulsing placeholder drops into the dungeon while the render is in flight.
+4. Enter the dungeon. Click the viewport to lock the cursor. **WASD** to move, mouse to look.
+5. **TAB** / **ESC** returns you to the terminal — queue more spawns while existing ones are still rendering.
+6. Reach the glowing violet exit pillar to advance to the next level.
 
-Each new spawn lands on the next position around a small ring at the
-centre, so sprites don't pile on top of each other.
+Renders take a few minutes — that's the pipeline, not a bug. Queue a few creatures and explore while they arrive.
+
+---
 
 ## What's in here
 
 ```
-forge.py              FastAPI service. POST /jobs queues a render brief.
-                      Worker thread calls graydient.render.create(),
-                      runs the result through rembg, trims the bounding
-                      box, saves to sprites/.
-requirements.txt      Python deps (excluding the local graydient SDK).
-game/index.html       Page shell + import-map for Three.js (jsdelivr).
-game/style.css        CRT-terminal aesthetic. Amber phosphor + scanlines.
-game/main.js          Three.js scene, FPS controls, spawn polling loop.
-sprites/              Generated PNGs accumulate here.
+forge.py              FastAPI server — profiles, job queue, sprite + variant workers
+graydient_client.py   HTTP client for the Graydient v3 API
+profiles.py           Player profile store — bcrypt passwords, Fernet-encrypted API keys
+config.py             Runtime config — workflows, prompt templates, lore
+launcher.py           GUI launcher (tkinter) — setup, server lifecycle, browser open
+launch.bat            Windows launcher entry point
+launch.sh             macOS / Linux launcher entry point
+game/
+  index.html          Shell — Three.js import map, setup screen, Forge hub, terminal
+  main.js             Scene orchestration, movement, collision, boot
+  scene.js            THREE.js renderer, cameras, PointerLockControls
+  entity.js           Sprite spawning, roaming AI, walk animation
+  combat.js           Combat resolution, XP, item drops, inventory
+  hub-panels.js       All Forge workshop panels
+  events.js           Pub/sub event bus
+  world-state.js      Flag/counter persistence within a play session
+  triggers.js         Tile-based trigger system
+  lore-engine.js      World scaffold and inference hooks
+  experiences.js      Experience CRUD, fork, share codes
+  level.js            Procedural dungeon generator
+sprites/              Generated PNGs (gitignored, created at runtime)
+anims/                Generated walk animations (gitignored, created at runtime)
 ```
+
+---
 
 ## Architecture notes
 
-**Render flow.** The Forge holds a single worker thread pulling from an
-in-memory `queue.Queue`. The worker submits to Graydient with the SDK's
-streaming callback, blocks until `rendering_done` arrives, then downloads
-and rembg-cleans the result. The job table is plain dict (lost on restart) —
-fine for the slice, replace with SQLite when we add the bestiary.
+**Render pipeline.** Player submits a description → server wraps it with `SPRITE_PROMPT_TEMPLATE` → POSTs to Graydient (txt2img) → SSE stream → `rembg` background removal → saved to `sprites/`. A walk animation job queues automatically using the original Graydient URL as `init_image`.
 
-**Sprite staging.** The game POSTs to `/jobs`, immediately drops a placeholder
-mesh at the next spawn position, then polls `/jobs/{id}` every 3 seconds.
-When the job is `done`, the placeholder is swapped for a `THREE.Sprite` that
-auto-billboards to the camera. Aspect ratio is preserved from the loaded
-texture so renders that come back tall/thin still look right.
+**Profile security.** Passwords hashed with bcrypt. API keys encrypted with Fernet (PBKDF2-HMAC-SHA256, random salt per profile). Plaintext key never written to disk; decrypted into in-memory session on login. Session clears on restart — log in again to restore.
 
-**Prompt scaffolding.** The user types only the *subject*. The Forge wraps it
-with sprite-friendly constraints (full body, centered, plain white background,
-no shadows, etc) — see `SPRITE_PROMPT_TEMPLATE` in `forge.py`. **This is the
-first thing to iterate on** once you see your first renders. Better
-scaffolding means cleaner rembg output and more consistent sprite scale
-across creatures.
-
-**Pixel art look.** Sprites use `NearestFilter` magnification and `alphaTest`
-discard for sharp edges. The renderer is at low pixel ratio and the canvas
-gets `image-rendering: pixelated`. Tune to taste.
-
-## Known limitations / sharp edges
-
-- **Worker thread starts at import time.** This is the simplest workable
-  thing for FastAPI but isn't graceful on shutdown. Migrate to a lifespan
-  manager when you add proper queue persistence.
-- **No retry on render failure.** A failed job stays failed; you'll see its
-  placeholder turn red. Next iteration: scheduler with retry + reason codes.
-- **No collision with sprites.** You can walk through enemies. Add a 2D AABB
-  check vs sprite positions when you add real combat.
-- **One worker.** Graydient effectively serialises us anyway, so this is fine
-  until we have parallel-rendering budget.
-- **Placeholder is a translucent slab.** Could embed the prompt text as a
-  CanvasTexture so you can read what's coming from across the room — left
-  as a polish task.
-- **No sound.** Graydient has a `txt2wav` workflow; generating ambient room
-  drones and creature noises is a natural extension of the same pipeline.
-
-## What this proves and what comes next
-
-This slice proves three things in one runnable package:
-1. The Graydient pipeline produces usable sprite material with simple prompt
-   scaffolding + rembg cleanup.
-2. The game can defer the latency cleanly with placeholder-and-poll.
-3. The architecture cleanly separates the Forge service from the game so
-   the next layers (scheduler, profile, bestiary) bolt on without changing
-   either side.
-
-Once you've kicked the tyres and watched a few renders complete:
-
-- **Iterate on the prompt template** until your renders need minimal rembg
-  cleanup and have consistent scale.
-- **Replace the in-memory job dict with SQLite** so sprites survive restart
-  and become a real bestiary.
-- **Add the scheduler** that keeps a baseline pool topped up in the
-  background between explicit spawns.
-- **Add the profile + LLM-composer step** (OpenRouter free tier) that turns
-  player behaviour into prompt modifiers.
-
-Then we're looking at dungeon generation and the actual combat loop, and the
-slice has become a game.
+**Config.** All tunable values (workflows, prompt templates, lore) live in `config.py` / `config.json` and are read at job-creation time, so changes apply without restart. Exposed via `GET /config` and `PUT /config`.
