@@ -209,6 +209,22 @@ DEFAULTS: dict[str, Any] = {
     "entity_level_max":   5,
     "drop_chance":        0.30,
 
+    # --- weapon rendering ---
+    # Workflow slug for weapon img2img renders (reference image → variant).
+    # Falls back to variant_workflow if this is blank.
+    "weapon_workflow": "edit-qwen-rapid",
+
+    # Prompt scaffolding for weapon renders.
+    # {weapon_description} is replaced with the weapon type description + any extra prompt.
+    "weapon_prompt_template": (
+        "fantasy game melee weapon, isolated object on clean solid white background, "
+        "side-view slightly angled, detailed illustration, clear silhouette, "
+        "retro fantasy RPG item art, high contrast against background, "
+        "{weapon_description}, "
+        "[characters, people, creatures, hands, multiple objects, "
+        "complex backgrounds, UI, text, low quality, blurry]"
+    ),
+
     # --- Substance Lab: drop pool ---
     # List of item templates available as entity death drops.
     # Each entry: {name, type, subtype, stat_key, stat_val, rarity}

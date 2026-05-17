@@ -2093,6 +2093,167 @@ button:disabled { opacity: 0.4; cursor: wait; }
 .pose-ref-item span:last-child { color:var(--ok); }
 
 /* ====================================================================
+   WEAPON HUD
+   ==================================================================== */
+
+#weapon-hud {
+  position: fixed;
+  bottom: -55px;
+  right:  -25px;
+  width:  210px;
+  height: 210px;
+  z-index: 50;
+  pointer-events: none;
+  transform: rotate(28deg);
+  transform-origin: 75% 85%;
+  opacity: 0;
+  transition: opacity 0.3s;
+  filter: drop-shadow(1px 3px 6px rgba(0,0,0,0.9));
+}
+
+#weapon-hud[data-visible="true"] { opacity: 1; }
+
+/* Real sprite */
+#weapon-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Placeholder shape when no sprite has been rendered yet */
+.weapon-placeholder {
+  display: none;
+  position: absolute;
+  inset: 0;
+  margin: auto;
+}
+#weapon-hud[data-placeholder="true"] #weapon-img { display: none; }
+#weapon-hud[data-placeholder="true"] .weapon-placeholder {
+  display: block;
+  /* Amber sword silhouette via clip-path */
+  background: var(--amber-dim);
+  width: 18px;
+  height: 150px;
+  left: 50%; top: 10%;
+  transform: translateX(-50%);
+  clip-path: polygon(
+    30% 0%, 70% 0%,            /* blade tip */
+    60% 70%, 100% 72%,         /* crossguard right */
+    100% 80%, 60% 78%,         /* crossguard right lower */
+    65% 100%, 35% 100%,        /* hilt bottom */
+    40% 78%, 0% 80%,           /* crossguard left lower */
+    0% 72%, 40% 70%            /* crossguard left */
+  );
+}
+
+/* ── Slash animation ── */
+@keyframes weapon-slash {
+  0%   { transform: rotate(28deg); }
+  15%  { transform: rotate(40deg) scale(1.05); }
+  55%  { transform: rotate(-70deg) translateX(-30px) translateY(-20px); }
+  100% { transform: rotate(28deg); }
+}
+
+/* ── Stab animation ── */
+@keyframes weapon-stab {
+  0%   { transform: rotate(28deg) translate(0, 0); }
+  35%  { transform: rotate(10deg) translate(-90px, -65px); }
+  100% { transform: rotate(28deg) translate(0, 0); }
+}
+
+#weapon-hud[data-attacking="slash"] {
+  animation: weapon-slash 0.38s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+#weapon-hud[data-attacking="stab"] {
+  animation: weapon-stab 0.30s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* ====================================================================
+   WEAPON TYPE LIST (Substance Lab)
+   ==================================================================== */
+
+.weapon-type-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+  min-height: 24px;
+}
+
+.weapon-type-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--rust);
+  background: var(--bg-card);
+}
+.weapon-type-row:hover { border-color: var(--amber-dim); }
+
+.wt-thumb {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  border: 1px solid var(--rust-light);
+  background: #0a0800;
+  flex-shrink: 0;
+}
+.wt-thumb-placeholder {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--rust-light);
+  background: #0a0800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--amber-dim);
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.wt-name {
+  flex: 1;
+  color: var(--amber);
+  font-size: 17px;
+}
+.wt-meta {
+  font-size: 13px;
+  color: var(--amber-dim);
+  white-space: nowrap;
+}
+.wt-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: 4px;
+}
+.wt-btn {
+  font-family: 'VT323', monospace;
+  font-size: 13px;
+  background: transparent;
+  border: 1px solid var(--rust-light);
+  color: var(--amber-dim);
+  padding: 1px 6px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.wt-btn:hover { border-color: var(--amber-dim); color: var(--amber); }
+.wt-btn.wt-btn-danger:hover { border-color: var(--blood-hot); color: var(--blood-hot); }
+.wt-btn.wt-btn-active { border-color: var(--amber); color: var(--amber); }
+
+.weapon-type-add-form { margin-top: 6px; }
+.weapon-type-add-row  { display: flex; gap: 6px; align-items: center; }
+
+.hub-sub-input-sm {
+  font-family: 'VT323', monospace;
+  font-size: 17px;
+  background: #0a0800;
+  border: 1px solid var(--rust-light);
+  color: var(--amber);
+  padding: 2px 6px;
+}
+.hub-sub-input-sm:focus { outline: none; border-color: var(--amber-dim); }
+
+/* ====================================================================
    EXPERIENCE PICKER
    ==================================================================== */
 

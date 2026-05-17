@@ -170,6 +170,11 @@ def get_api_key(profile_id: str) -> Optional[str]:
     return _session.get(profile_id)
 
 
+def list_profile_ids() -> list:
+    with _lock:
+        return list(_profiles.keys())
+
+
 def get_public(profile_id: str) -> Optional[dict]:
     """Public profile data — never includes api_key or password_hash."""
     with _lock:

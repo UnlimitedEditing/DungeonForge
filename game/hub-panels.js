@@ -36,6 +36,7 @@ import {
   encodeShareCode, decodeShareCode, importFromCode, DEFAULT_EXPERIENCES,
 } from './experiences.js';
 import { generateLevel } from './level.js';
+import { setWeaponType, refreshWeaponSprite } from './weapon.js';
 
 const FORGE_BASE = window.location.origin;
 
@@ -720,6 +721,7 @@ let substanceDropPool  = [];   // working copy while panel is open
 export function openSubstancePanel() {
   substancePanelEl.dataset.open = 'true';
   loadSubstancePool();
+  loadWeaponTypes();
 }
 export function closeSubstancePanel() { substancePanelEl.dataset.open = 'false'; }
 
@@ -832,6 +834,173 @@ document.getElementById('substance-close-btn').addEventListener('click', closeSu
 document.getElementById('substance-prop-catalogue-btn').addEventListener('click', () => {
   closeSubstancePanel();
   openPropCataloguePanel();
+});
+
+// ─────────────────────────────────────────────
+// WEAPON TYPES (within Substance Lab panel)
+// ─────────────────────────────────────────────
+
+let _weaponTypes = [];
+let _weaponJobPollers = {};   // jobId → intervalId
+
+async function loadWeaponTypes() {
+  try {
+    const res = await fetch(`${FORGE_BASE}/weapon-types`);
+    if (!res.ok) return;
+    _weaponTypes = await res.json();
+  } catch (_) { _weaponTypes = []; }
+  renderWeaponTypes();
+}
+
+function renderWeaponTypes() {
+  const el = document.getElementById('weapon-type-list');
+  if (!el) return;
+  if (_weaponTypes.length === 0) {
+    el.innerHTML = '<div class="muted" style="padding:4px 8px;font-size:15px">No weapon types defined yet.</div>';
+    return;
+  }
+  el.innerHTML = _weaponTypes.map((wt, idx) => {
+    const thumbHtml = wt.sprite_name
+      ? `<img class="wt-thumb" src="${FORGE_BASE}/sprites/${escapeHtml(wt.sprite_name)}" alt="" />`
+      : `<div class="wt-thumb-placeholder">⚔</div>`;
+    const dmg   = wt.stats?.damage ?? '—';
+    const spd   = wt.stats?.speed  ?? '—';
+    const range = wt.stats?.range  ?? '—';
+    return `
+      <div class="weapon-type-row" data-idx="${idx}">
+        ${thumbHtml}
+        <span class="wt-name">${escapeHtml(wt.name)}</span>
+        <span class="wt-meta">${wt.attack_type} &nbsp;·&nbsp; dmg:${dmg} spd:${spd} rng:${range}</span>
+        <div class="wt-actions">
+          <button class="wt-btn" data-action="equip"     data-idx="${idx}" title="Preview equipped">EQUIP</button>
+          <button class="wt-btn" data-action="ref"       data-idx="${idx}" title="Upload reference image">REF</button>
+          <button class="wt-btn" data-action="render"    data-idx="${idx}" title="Render a variant sprite">RENDER</button>
+          <button class="wt-btn wt-btn-danger" data-action="delete" data-idx="${idx}" title="Delete weapon type">✕</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  el.querySelectorAll('[data-action]').forEach(btn => {
+    btn.addEventListener('click', () => handleWeaponTypeAction(btn.dataset.action, parseInt(btn.dataset.idx)));
+  });
+}
+
+async function handleWeaponTypeAction(action, idx) {
+  const wt = _weaponTypes[idx];
+  if (!wt) return;
+  const statusEl = document.getElementById('wt-add-status');
+
+  if (action === 'equip') {
+    setWeaponType(wt);
+    setStatus(statusEl, 'saved', `equipped ${wt.name}`);
+    setTimeout(() => { statusEl.dataset.state = 'idle'; }, 2500);
+
+  } else if (action === 'ref') {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = async () => {
+      const file = input.files[0];
+      if (!file) return;
+      setStatus(statusEl, 'saving', 'uploading reference…');
+      try {
+        const buf = await file.arrayBuffer();
+        const res = await fetch(`${FORGE_BASE}/weapon-types/${wt.id}/reference`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: buf,
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        wt.reference_image = data.reference_image;
+        setStatus(statusEl, 'saved', 'reference saved');
+        setTimeout(() => { statusEl.dataset.state = 'idle'; }, 2500);
+      } catch (e) { setStatus(statusEl, 'error', e.message); }
+    };
+    input.click();
+
+  } else if (action === 'render') {
+    if (!profileId) { setStatus(statusEl, 'error', 'log in first'); return; }
+    setStatus(statusEl, 'saving', `queuing render for ${wt.name}…`);
+    try {
+      const res = await fetch(`${FORGE_BASE}/weapon-jobs`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile_id: profileId, weapon_type_id: wt.id }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const job = await res.json();
+      setStatus(statusEl, 'saved', `rendering… job ${job.id}`);
+      _pollWeaponJob(job.id, wt.id, wt.name, statusEl);
+    } catch (e) { setStatus(statusEl, 'error', e.message); }
+
+  } else if (action === 'delete') {
+    try {
+      const res = await fetch(`${FORGE_BASE}/weapon-types/${wt.id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(await res.text());
+      _weaponTypes.splice(idx, 1);
+      renderWeaponTypes();
+    } catch (e) { setStatus(statusEl, 'error', e.message); }
+  }
+}
+
+function _pollWeaponJob(jobId, wtId, wtName, statusEl) {
+  if (_weaponJobPollers[jobId]) return;
+  _weaponJobPollers[jobId] = setInterval(async () => {
+    try {
+      const res = await fetch(`${FORGE_BASE}/weapon-jobs/${jobId}`);
+      if (!res.ok) return;
+      const job = await res.json();
+      if (job.status === 'done') {
+        clearInterval(_weaponJobPollers[jobId]);
+        delete _weaponJobPollers[jobId];
+        // Update local weapon type sprite and refresh the list + HUD
+        const wt = _weaponTypes.find(w => w.id === wtId);
+        if (wt) {
+          wt.sprite_name = job.sprite_name;
+          renderWeaponTypes();
+        }
+        refreshWeaponSprite(job.sprite_name);
+        setStatus(statusEl, 'saved', `${wtName} rendered ✓`);
+        setTimeout(() => { statusEl.dataset.state = 'idle'; }, 3000);
+      } else if (job.status === 'failed') {
+        clearInterval(_weaponJobPollers[jobId]);
+        delete _weaponJobPollers[jobId];
+        setStatus(statusEl, 'error', job.error || 'render failed');
+      }
+    } catch (_) {}
+  }, 3000);
+}
+
+document.getElementById('wt-add-btn').addEventListener('click', async () => {
+  const nameEl    = document.getElementById('wt-new-name');
+  const attackEl  = document.getElementById('wt-new-attack-type');
+  const dmgEl     = document.getElementById('wt-new-dmg');
+  const spdEl     = document.getElementById('wt-new-spd');
+  const rangeEl   = document.getElementById('wt-new-range');
+  const statusEl  = document.getElementById('wt-add-status');
+  const name = nameEl.value.trim();
+  if (!name) { setStatus(statusEl, 'error', 'enter a name'); return; }
+  try {
+    const res = await fetch(`${FORGE_BASE}/weapon-types`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        attack_type: attackEl.value,
+        stats: {
+          damage: parseInt(dmgEl.value)  || 5,
+          speed:  parseInt(spdEl.value)  || 3,
+          range:  parseInt(rangeEl.value) || 2,
+        },
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const wt = await res.json();
+    _weaponTypes.push(wt);
+    renderWeaponTypes();
+    nameEl.value = ''; dmgEl.value = ''; spdEl.value = ''; rangeEl.value = '';
+    setStatus(statusEl, 'saved', `${name} added`);
+    setTimeout(() => { statusEl.dataset.state = 'idle'; }, 2500);
+  } catch (e) { setStatus(statusEl, 'error', e.message); }
 });
 
 // ─────────────────────────────────────────────

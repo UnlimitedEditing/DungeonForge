@@ -44,6 +44,7 @@ from rembg import remove
 import config
 import graydient_client
 import profiles
+import weapons
 
 dotenv.load_dotenv()
 
@@ -199,6 +200,18 @@ class ItemRequest(BaseModel):
 class EquipRequest(BaseModel):
     item: Optional[dict] = None   # None to unequip
 
+class WeaponTypeRequest(BaseModel):
+    id: Optional[str] = None
+    name: str
+    attack_type: str = "slash"    # slash | stab | ranged
+    stats: dict = {}              # damage, speed, range
+    prompt_template: str = ""     # leave blank to use global weapon_prompt_template
+
+class WeaponJobRequest(BaseModel):
+    profile_id: str
+    weapon_type_id: str
+    extra_prompt: str = ""        # appended to the weapon prompt for this render
+
 class PoseRegisterRequest(BaseModel):
     profile_id: str
     frame_type: str   # e.g. "walk_f0", "back_f2"
@@ -256,6 +269,20 @@ ROTATION_JOBS: dict[str, RotationJob] = {}
 ROTATION_JOB_QUEUE: "queue.Queue[str]" = queue.Queue()
 ROTATION_JOBS_LOCK = threading.Lock()
 _PERSIST_LOCK     = threading.Lock()
+
+class WeaponJob(BaseModel):
+    id: str
+    weapon_type_id: str
+    prompt: str                # resolved full prompt sent to Graydient
+    status: str = "queued"    # queued | rendering | processing | done | failed
+    sprite_name: Optional[str] = None
+    error: Optional[str] = None
+    created_at: float
+    finished_at: Optional[float] = None
+
+WEAPON_JOBS: dict[str, WeaponJob] = {}
+WEAPON_JOB_QUEUE: "queue.Queue[str]" = queue.Queue()
+WEAPON_JOBS_LOCK  = threading.Lock()
 
 _JOBS_PATH = os.path.join(os.path.dirname(__file__), "jobs.json")
 
@@ -720,9 +747,117 @@ def rotation_worker():
         finally:
             ROTATION_JOB_QUEUE.task_done()
 
+def weapon_worker():
+    while True:
+        job_id = WEAPON_JOB_QUEUE.get()
+        try:
+            with WEAPON_JOBS_LOCK:
+                wj = WEAPON_JOBS.get(job_id)
+            if not wj:
+                continue
+
+            wt = weapons.get(wj.weapon_type_id)
+            if not wt:
+                with WEAPON_JOBS_LOCK:
+                    wj.status = "failed"
+                    wj.error  = "weapon type not found"
+                    wj.finished_at = time.time()
+                continue
+
+            # Resolve API key from first available profile that has one.
+            # Weapon jobs are background renders — any valid key will do.
+            api_key = None
+            # Try to find a key via the weapon type's creator field if present.
+            creator_id = wt.get("created_by")
+            if creator_id:
+                api_key = profiles.get_api_key(creator_id)
+            if not api_key:
+                # Fall back: scan all profiles for any live key.
+                for pid in profiles.list_profile_ids():
+                    k = profiles.get_api_key(pid)
+                    if k:
+                        api_key = k
+                        break
+            if not api_key:
+                with WEAPON_JOBS_LOCK:
+                    wj.status = "failed"
+                    wj.error  = "no active session — log in first"
+                    wj.finished_at = time.time()
+                continue
+
+            with WEAPON_JOBS_LOCK:
+                wj.status = "rendering"
+
+            workflow    = config.get("weapon_workflow") or config.get("variant_workflow")
+            ref_image   = wt.get("reference_image")   # sprite filename or None
+            collected   = {"url": None}
+
+            def on_event(event):
+                if "rendering_done" in event:
+                    data = event["rendering_done"]
+                    info = graydient_client.render_info(data["render_hash"], api_key)
+                    collected["url"] = graydient_client.extract_image_url(info)
+                    log.info("[weapon %s] url=%s", job_id, collected["url"])
+
+            if ref_image:
+                ref_path = os.path.join(SPRITES_DIR, ref_image)
+                if os.path.exists(ref_path):
+                    ref_url = f"http://127.0.0.1:{PORT}/sprites/{ref_image}"
+                else:
+                    ref_url = None
+            else:
+                ref_url = None
+
+            if ref_url:
+                graydient_client.render_create(
+                    prompt=wj.prompt,
+                    workflow=workflow,
+                    api_key=api_key,
+                    on_event=on_event,
+                    init_image=ref_url,
+                    strength=float(config.get("variant_strength")),
+                )
+            else:
+                graydient_client.render_create(
+                    prompt=wj.prompt,
+                    workflow=config.get("workflow"),
+                    api_key=api_key,
+                    on_event=on_event,
+                )
+
+            if not collected["url"]:
+                raise RuntimeError("no URL from Graydient")
+
+            with WEAPON_JOBS_LOCK:
+                wj.status = "processing"
+
+            img_bytes = requests.get(collected["url"], timeout=60).content
+            sprite_name = f"weapon_{job_id}.png"
+            out_path    = os.path.join(SPRITES_DIR, sprite_name)
+            process_sprite(img_bytes, out_path)
+
+            with WEAPON_JOBS_LOCK:
+                wj.sprite_name  = sprite_name
+                wj.status       = "done"
+                wj.finished_at  = time.time()
+
+            weapons.set_sprite(wj.weapon_type_id, sprite_name)
+            log.info("[weapon %s] done → %s", job_id, sprite_name)
+
+        except Exception:
+            log.exception("[weapon %s] failed", job_id)
+            with WEAPON_JOBS_LOCK:
+                if job_id in WEAPON_JOBS:
+                    WEAPON_JOBS[job_id].status = "failed"
+                    WEAPON_JOBS[job_id].error  = "render error — see server log"
+                    WEAPON_JOBS[job_id].finished_at = time.time()
+        finally:
+            WEAPON_JOB_QUEUE.task_done()
+
 threading.Thread(target=render_worker,  daemon=True).start()
 threading.Thread(target=variant_worker, daemon=True).start()
 threading.Thread(target=rotation_worker, daemon=True).start()
+threading.Thread(target=weapon_worker,  daemon=True).start()
 
 # ---------- API ----------
 
@@ -1030,6 +1165,109 @@ def get_item(job_id: str):
 def list_items():
     with JOBS_LOCK:
         return [j for j in JOBS.values() if j.job_type == "item"]
+
+# -- weapon types --
+
+@app.get("/weapon-types")
+def list_weapon_types():
+    return weapons.get_all()
+
+@app.post("/weapon-types")
+def create_weapon_type(req: WeaponTypeRequest):
+    import uuid as _uuid
+    wt_id = req.id or _uuid.uuid4().hex[:8]
+    wt = {
+        "id":              wt_id,
+        "name":            req.name.strip(),
+        "attack_type":     req.attack_type,
+        "stats":           req.stats,
+        "prompt_template": req.prompt_template.strip(),
+        "reference_image": None,
+        "sprite_name":     None,
+    }
+    return weapons.upsert(wt)
+
+@app.put("/weapon-types/{wt_id}")
+def update_weapon_type(wt_id: str, req: WeaponTypeRequest):
+    existing = weapons.get(wt_id)
+    if not existing:
+        raise HTTPException(404, "weapon type not found")
+    existing.update({
+        "name":            req.name.strip(),
+        "attack_type":     req.attack_type,
+        "stats":           req.stats,
+        "prompt_template": req.prompt_template.strip(),
+    })
+    return weapons.upsert(existing)
+
+@app.delete("/weapon-types/{wt_id}")
+def delete_weapon_type(wt_id: str):
+    if not weapons.delete(wt_id):
+        raise HTTPException(404, "weapon type not found")
+    return {"ok": True}
+
+@app.post("/weapon-types/{wt_id}/reference")
+async def upload_weapon_reference(wt_id: str, request: Request):
+    wt = weapons.get(wt_id)
+    if not wt:
+        raise HTTPException(404, "weapon type not found")
+    body = await request.body()
+    if not body:
+        raise HTTPException(400, "empty body")
+    fname = f"weapon_ref_{wt_id}.png"
+    out   = os.path.join(SPRITES_DIR, fname)
+    try:
+        img = Image.open(BytesIO(body)).convert("RGBA")
+        img.save(out, "PNG")
+    except Exception:
+        raise HTTPException(400, "could not decode image")
+    wt["reference_image"] = fname
+    weapons.upsert(wt)
+    return {"reference_image": fname}
+
+# -- weapon jobs --
+
+@app.post("/weapon-jobs")
+def create_weapon_job(req: WeaponJobRequest):
+    if not profiles.get_api_key(req.profile_id):
+        raise HTTPException(401, "session expired — please log in again")
+    wt = weapons.get(req.weapon_type_id)
+    if not wt:
+        raise HTTPException(404, "weapon type not found")
+
+    tmpl = wt.get("prompt_template") or config.get("weapon_prompt_template")
+    desc = wt["name"]
+    if req.extra_prompt:
+        desc = f"{desc}, {req.extra_prompt}"
+    full_prompt = tmpl.format(weapon_description=desc)
+
+    job_id = uuid.uuid4().hex[:8]
+    wj = WeaponJob(
+        id=job_id,
+        weapon_type_id=req.weapon_type_id,
+        prompt=full_prompt,
+        created_at=time.time(),
+    )
+    wt["created_by"] = req.profile_id
+    weapons.upsert(wt)
+    with WEAPON_JOBS_LOCK:
+        WEAPON_JOBS[job_id] = wj
+    WEAPON_JOB_QUEUE.put(job_id)
+    log.info("[weapon %s] queued for type '%s'", job_id, wt["name"])
+    return wj
+
+@app.get("/weapon-jobs/{job_id}")
+def get_weapon_job(job_id: str):
+    with WEAPON_JOBS_LOCK:
+        wj = WEAPON_JOBS.get(job_id)
+    if not wj:
+        raise HTTPException(404, "no such weapon job")
+    return wj
+
+@app.get("/weapon-jobs")
+def list_weapon_jobs():
+    with WEAPON_JOBS_LOCK:
+        return list(WEAPON_JOBS.values())
 
 # -- player stats --
 
