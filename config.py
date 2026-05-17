@@ -127,6 +127,25 @@ DEFAULTS: dict[str, Any] = {
     #                 'prop'       = environmental object (luminance mask + WAN 360° rotation)
     "spawn_pipeline": "turnaround",
 
+    "spawn_density": 0.4,
+    "boss_hp_multiplier": 3.0,
+    "dungeon_theme_persona": "Polly",
+    "dungeon_theme_system_prompt": (
+        "You are a dungeon content designer for a fantasy game. "
+        "Given a world's lore, generate a themed dungeon with inhabitants. "
+        "Respond with ONLY valid JSON — no explanation, no markdown, no surrounding text. "
+        "Format: "
+        "{\"dungeonName\":\"\","
+        "\"creatures\":[{\"name\":\"\",\"tier\":1}],"
+        "\"boss\":{\"name\":\"\"},"
+        "\"weapons\":[\"\"]} "
+        "Rules: 4-6 creatures total. Tier 1-2 are weak enemies, tier 3-4 are stronger. "
+        "All names must fit the world's theme and aesthetic. "
+        "Creature names should be evocative (e.g. 'cave lurker', 'fetid rat'). "
+        "Weapons are item types found in the dungeon. "
+        "Respond ONLY with the JSON object, nothing else."
+    ),
+
     # Prompt template for prop renders — Qwen positive/negative format.
     # {user_prompt} is replaced with whatever the player typed.
     "prop_prompt_template": (

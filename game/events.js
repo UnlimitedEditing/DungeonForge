@@ -15,6 +15,8 @@ export const EVENTS = {
   EXPERIENCE_LOADED: 'experience:loaded',
   SYSTEM_ENABLED: 'system:enabled',
   SYSTEM_DISABLED: 'system:disabled',
+  DUNGEON_THEME_READY: 'dungeon:theme_ready',
+  BOSS_DIED: 'boss:died',
 };
 
 const _listeners = {};
