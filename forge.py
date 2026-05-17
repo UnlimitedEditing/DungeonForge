@@ -496,11 +496,12 @@ def render_worker():
             log.info("[%s] sprite saved, variants queued: %s", job.id, variant_ids)
             _persist_snapshot()
 
-        except Exception:
+        except Exception as exc:
             log.exception("[%s] sprite FAILED", job_id)
             with JOBS_LOCK:
                 if job_id in JOBS:
                     JOBS[job_id].status = "failed"
+                    JOBS[job_id].error  = str(exc)
                     JOBS[job_id].finished_at = time.time()
         finally:
             JOB_QUEUE.task_done()
@@ -600,11 +601,12 @@ def variant_worker():
                 log.info("[variant %s] saved %s", var_id, sprite_name)
                 _persist_snapshot()
 
-        except Exception:
+        except Exception as exc:
             log.exception("[variant %s] FAILED", var_id)
             with VARIANT_JOBS_LOCK:
                 if var_id in VARIANT_JOBS:
                     VARIANT_JOBS[var_id].status = "failed"
+                    VARIANT_JOBS[var_id].error  = str(exc)
                     VARIANT_JOBS[var_id].finished_at = time.time()
         finally:
             VARIANT_JOB_QUEUE.task_done()
