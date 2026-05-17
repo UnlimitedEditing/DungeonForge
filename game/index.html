@@ -146,6 +146,11 @@
             <div class="hub-room-name">THE UNDERCROFT</div>
             <div class="hub-room-tagline">Event bus · State registry · Trigger manifest.</div>
           </div>
+          <div class="hub-room-card" id="hub-prop-catalogue-card">
+            <div class="hub-room-sigil">⬡</div>
+            <div class="hub-room-name">PROP CATALOGUE</div>
+            <div class="hub-room-tagline">Browse, configure and calibrate world props. Assign area affinities and destructibility.</div>
+          </div>
           <div class="hub-room-card hub-room-sealed">
             <div class="hub-room-sigil">⊕</div>
             <div class="hub-room-name">LOBBY</div>
@@ -321,6 +326,39 @@
           </div>
           <div id="scaffold-preview" class="scaffold-preview" style="display:none"></div>
         </div>
+        <div class="lib-section">
+          <div class="lib-section-label">// RENDER PIPELINE</div>
+
+          <div class="lib-field">
+            <label class="lib-label">Default spawn type</label>
+            <select id="lib-pipeline" class="lib-select">
+              <option value="turnaround">Character — Turnaround</option>
+              <option value="prop">Prop — 360° Rotation</option>
+            </select>
+          </div>
+
+          <div class="lib-field">
+            <label class="lib-label">Prop prompt template <span class="lib-label-hint">{user_prompt}</span></label>
+            <textarea id="lib-prop-template" class="lib-textarea" rows="3"></textarea>
+          </div>
+
+          <div class="lib-field-row">
+            <div class="lib-field">
+              <label class="lib-label">Luma threshold (180–255)</label>
+              <input id="lib-luma-threshold" type="number" min="180" max="255" step="1" class="lib-input" />
+            </div>
+            <div class="lib-field">
+              <label class="lib-label">Rotation frames (4/8/16)</label>
+              <input id="lib-prop-frames" type="number" min="4" max="16" step="4" class="lib-input" />
+            </div>
+          </div>
+
+          <div class="lib-field-row lib-pipeline-footer">
+            <div id="lib-pipeline-status" class="lib-status" data-state="idle"></div>
+            <button class="lib-btn" id="lib-pipeline-save-btn">SAVE PIPELINE</button>
+          </div>
+        </div>
+
         <div class="library-codex">
           <div class="library-codex-sigil">◆</div>
           <div class="library-codex-info">
@@ -521,6 +559,10 @@
           <p><kbd>ESC</kbd> or <kbd>TAB</kbd> returns to this terminal.</p>
           <p><kbd>Q</kbd> melee · <kbd>E</kbd> ranged · <kbd>F</kbd> pick up · <kbd>I</kbd> inventory</p>
           <p class="muted">Enter a description below. The forge will render a sprite and stage it in the room. Render takes minutes — a placeholder appears while it works.</p>
+        </div>
+        <div id="spawn-mode-row">
+          <button class="spawn-mode-btn active" id="spawn-mode-entity" data-mode="entity">⚔ ENTITY</button>
+          <button class="spawn-mode-btn" id="spawn-mode-prop" data-mode="prop">⬡ PROP</button>
         </div>
         <div class="terminal-prompt-row">
           <span class="terminal-caret">&gt;</span>
@@ -745,6 +787,35 @@
             <button id="sub-forge-btn" class="hub-sub-action-btn">FORGE ITEM</button>
           </div>
           <div id="sub-forge-status" class="hub-sub-status" data-state="idle"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Prop Catalogue panel -->
+  <div id="prop-catalogue-panel" data-open="false">
+    <div class="hub-sub-frame hub-sub-frame-wide prop-catalogue-frame">
+      <div class="hub-sub-header">
+        <span class="hub-sub-title">// PROP CATALOGUE</span>
+        <button class="hub-sub-close-btn" id="prop-catalogue-close-btn">✕ CLOSE</button>
+      </div>
+      <div class="prop-catalogue-body">
+
+        <!-- Left: prop list -->
+        <div class="prop-catalogue-list" id="prop-catalogue-list">
+          <div class="prop-catalogue-list-header">
+            <span class="prop-catalogue-list-label">PROPS</span>
+            <button class="prop-spawn-btn" id="prop-spawn-btn">+ NEW PROP</button>
+          </div>
+          <div class="prop-catalogue-list-body" id="prop-catalogue-list-body">
+            <div class="prop-catalogue-empty">No props forged yet.</div>
+          </div>
+        </div>
+
+        <!-- Right: detail pane -->
+        <div class="prop-catalogue-detail" id="prop-catalogue-detail">
+          <div class="prop-catalogue-detail-empty">Select a prop to inspect and configure.</div>
         </div>
 
       </div>

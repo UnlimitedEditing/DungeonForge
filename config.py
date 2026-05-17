@@ -38,12 +38,15 @@ DEFAULTS: dict[str, Any] = {
     # --- sprite prompt scaffolding ---
     # {user_prompt} is replaced with whatever the player typed.
     "sprite_prompt_template": (
+        "(character turnaround sheet, front view on left half back view on right half, "
+        "full body standing pose, centered composition, "
+        "clean solid white background, no floor shadows, soft even lighting, "
+        "retro fantasy game character illustration, clear silhouette, "
+        "high contrast against background), "
         "{user_prompt}, "
-        "single character full body, standing pose facing forward, "
-        "centered composition, clean solid white background, "
-        "no shadows on the floor, soft even lighting, "
-        "retro fantasy game character illustration, "
-        "clear silhouette, high contrast against the background"
+        "[multiple subjects, different characters, more than two views, "
+        "low quality, blurry, low contrast, monochromatic, "
+        "cropped body, partial figure, busy background]"
     ),
 
     # --- variant state templates ---
@@ -118,6 +121,34 @@ DEFAULTS: dict[str, Any] = {
         "and one or two more based on the world lore. "
         "Respond ONLY with valid JSON. No explanation, no markdown, no code fences."
     ),
+
+    # --- Prop rendering pipeline ---
+    # spawn_pipeline: 'turnaround' = character (rembg + front/back split, default)
+    #                 'prop'       = environmental object (luminance mask + WAN 360° rotation)
+    "spawn_pipeline": "turnaround",
+
+    # Prompt template for prop renders — Qwen positive/negative format.
+    # {user_prompt} is replaced with whatever the player typed.
+    "prop_prompt_template": (
+        "(environmental prop asset, single object centered on clean solid white background, "
+        "soft even studio lighting, clear silhouette, high contrast against background, "
+        "suitable for 360 degree turntable rotation), "
+        "{user_prompt}, "
+        "[characters, people, creatures, multiple objects, "
+        "complex backgrounds, shadows, reflections, low quality, blurry]"
+    ),
+
+    # Luminance threshold for white-background masking (0–255).
+    # Pixels with luminance above this value become transparent.
+    # 240 keeps edge anti-aliasing while removing the white background.
+    "prop_luma_threshold": 240,
+
+    # Number of frames extracted from the WAN rotation video.
+    # Must divide evenly into 360 for clean angle mapping (4, 8, or 16).
+    "prop_frame_count": 8,
+
+    # Graydient workflow slug for 360° rotation video generation.
+    "prop_rotation_workflow": "animate-wan22",
 
     # --- Arcanum: progression tuning ---
     "xp_multiplier":   1.0,   # multiplied on every XP gain

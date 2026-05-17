@@ -157,9 +157,50 @@ scaffoldGenBtn.addEventListener('click', async () => {
   } finally { scaffoldGenBtn.disabled = false; }
 });
 
+async function loadPipelineConfig() {
+  try {
+    const res = await fetch(`${FORGE_BASE}/config`);
+    if (!res.ok) return;
+    const cfg = await res.json();
+    const el = id => document.getElementById(id);
+    const p = el('lib-pipeline'); if (p) p.value = cfg.spawn_pipeline ?? 'turnaround';
+    const t = el('lib-prop-template'); if (t) t.value = cfg.prop_prompt_template ?? '';
+    const l = el('lib-luma-threshold'); if (l) l.value = cfg.prop_luma_threshold ?? 240;
+    const f = el('lib-prop-frames'); if (f) f.value = cfg.prop_frame_count ?? 8;
+  } catch (_) {}
+}
+
+async function savePipelineConfig() {
+  const btn = document.getElementById('lib-pipeline-save-btn');
+  const statusEl = document.getElementById('lib-pipeline-status');
+  btn.disabled = true;
+  setStatus(statusEl, 'saving', 'inscribing…');
+  try {
+    const cfgRes = await fetch(`${FORGE_BASE}/config`);
+    if (!cfgRes.ok) throw new Error('could not fetch config');
+    const cfg = await cfgRes.json();
+    const el = id => document.getElementById(id);
+    const p = el('lib-pipeline'); if (p) cfg.spawn_pipeline = p.value;
+    const t = el('lib-prop-template'); if (t) cfg.prop_prompt_template = t.value;
+    const l = el('lib-luma-threshold'); if (l) cfg.prop_luma_threshold = parseInt(l.value);
+    const f = el('lib-prop-frames'); if (f) cfg.prop_frame_count = parseInt(f.value);
+    const res = await fetch(`${FORGE_BASE}/config`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    setStatus(statusEl, 'saved', 'saved');
+    setTimeout(() => { statusEl.dataset.state = 'idle'; }, 2500);
+  } catch (e) { setStatus(statusEl, 'error', e.message); }
+  finally { btn.disabled = false; }
+}
+
+document.getElementById('lib-pipeline-save-btn').addEventListener('click', savePipelineConfig);
+
 export function openLibraryPanel() {  // override to also load scaffold status
   libraryPanelEl.dataset.open = 'true';
   loadLore();
+  loadPipelineConfig();
   loreTextarea.focus();
   const expId = activeExperience?.id ?? 'latentcrawl';
   _loadScaffoldUI(expId);
@@ -1169,3 +1210,342 @@ undercroftPanelEl.querySelectorAll('.uc-tab').forEach(btn => {
 });
 document.getElementById('undercroft-close-btn').addEventListener('click', closeUndercroftPanel);
 document.getElementById('hub-undercroft-card').addEventListener('click', openUndercroftPanel);
+
+// ─────────────────────────────────────────────
+// PROP CATALOGUE PANEL
+// ─────────────────────────────────────────────
+
+const propCataloguePanelEl = document.getElementById('prop-catalogue-panel');
+let _selectedProp  = null;
+let _calibMap      = [];   // [dirIdx] = sourceFrameIdx — live edit state
+let _calibFrame    = 0;    // current frame shown in calibration viewer
+let _calibInterval = null; // play interval handle
+
+export function openPropCataloguePanel() {
+  propCataloguePanelEl.dataset.open = 'true';
+  loadPropCatalogue();
+}
+export function closePropCataloguePanel() {
+  propCataloguePanelEl.dataset.open = 'false';
+  _selectedProp = null;
+  if (_calibInterval) { clearInterval(_calibInterval); _calibInterval = null; }
+}
+
+async function loadPropCatalogue() {
+  const listBody = document.getElementById('prop-catalogue-list-body');
+  listBody.innerHTML = '<div class="prop-catalogue-empty">loading…</div>';
+  try {
+    const res = await fetch(`${FORGE_BASE}/prop-catalog`);
+    if (!res.ok) throw new Error(res.status);
+    const props = await res.json();
+    renderPropList(props);
+  } catch (e) {
+    listBody.innerHTML = `<div class="prop-catalogue-empty">error: ${e.message}</div>`;
+  }
+}
+
+function renderPropList(props) {
+  const listBody = document.getElementById('prop-catalogue-list-body');
+  if (!props.length) {
+    listBody.innerHTML = '<div class="prop-catalogue-empty">No props forged yet.<br>Switch to PROP mode in the terminal and spawn something.</div>';
+    return;
+  }
+  listBody.innerHTML = '';
+  for (const p of props) {
+    const card = document.createElement('div');
+    card.className = `prop-list-card${_selectedProp?.job_id === p.job_id ? ' selected' : ''}`;
+    card.dataset.jobId = p.job_id;
+
+    const thumb = document.createElement('div');
+    thumb.className = 'prop-list-thumb';
+    if (p.sprite_name) {
+      thumb.style.backgroundImage = `url(/sprites/${p.sprite_name})`;
+      thumb.style.backgroundSize = 'contain';
+      thumb.style.backgroundRepeat = 'no-repeat';
+      thumb.style.backgroundPosition = 'center';
+    } else {
+      thumb.textContent = '…';
+      thumb.style.display = 'flex';
+      thumb.style.alignItems = 'center';
+      thumb.style.justifyContent = 'center';
+      thumb.style.color = 'var(--amber-dim)';
+    }
+
+    const info = document.createElement('div');
+    info.className = 'prop-list-info';
+
+    const promptEl = document.createElement('div');
+    promptEl.className = 'prop-list-prompt';
+    promptEl.textContent = p.prompt;
+
+    const statusEl = document.createElement('div');
+    statusEl.className = `prop-list-status badge ${p.status === 'done' ? 'badge-ok' : p.status === 'failed' ? 'badge-blood' : 'badge-hot'}`;
+    statusEl.textContent = p.status;
+
+    const rotStatus = document.createElement('div');
+    rotStatus.className = `prop-list-status badge ${
+      !p.rotation_job ? 'badge-dim' :
+      p.rotation_job.status === 'done' ? 'badge-ok' :
+      p.rotation_job.status === 'failed' ? 'badge-blood' : 'badge-hot'}`;
+    rotStatus.textContent = p.rotation_job ? `360° ${p.rotation_job.status}` : '360° pending';
+
+    info.append(promptEl, statusEl, rotStatus);
+    card.append(thumb, info);
+    card.addEventListener('click', () => selectProp(p));
+    listBody.appendChild(card);
+  }
+}
+
+function selectProp(p) {
+  _selectedProp = p;
+  // Re-render list to update selected state
+  document.querySelectorAll('.prop-list-card').forEach(c => {
+    c.classList.toggle('selected', c.dataset.jobId === p.job_id);
+  });
+  renderPropDetail(p);
+}
+
+// Compass rose layout — indices match DIRECTIONS array ['N','NE','E','SE','S','SW','W','NW']
+const _CALIB_DIRS = [
+  { label: 'NW', idx: 7, col: 1, row: 1 },
+  { label: 'N',  idx: 0, col: 2, row: 1 },
+  { label: 'NE', idx: 1, col: 3, row: 1 },
+  { label: 'W',  idx: 6, col: 1, row: 2 },
+  { label: 'E',  idx: 2, col: 3, row: 2 },
+  { label: 'SW', idx: 5, col: 1, row: 3 },
+  { label: 'S',  idx: 4, col: 2, row: 3 },
+  { label: 'SE', idx: 3, col: 3, row: 3 },
+];
+
+function _bgPosPct(fi, total) {
+  return total > 1 ? (fi / (total - 1)) * 100 : 0;
+}
+
+function renderPropDetail(p) {
+  const detail = document.getElementById('prop-catalogue-detail');
+
+  const rotJob     = p.rotation_job;
+  const hasSheet   = rotJob?.status === 'done' && rotJob?.sprite_name;
+  const frameCount = rotJob?.frame_count ?? 8;
+
+  // Reset live calibration state for this prop
+  if (_calibInterval) { clearInterval(_calibInterval); _calibInterval = null; }
+  _calibFrame = 0;
+  const savedMap = rotJob?.frame_map ?? [];
+  _calibMap = Array.from({ length: 8 }, (_, i) => savedMap[i] ?? i);
+
+  const areaTypesVal = (p.area_types ?? []).join(', ');
+  const spriteUrl    = hasSheet ? `/sprites/${rotJob.sprite_name}` : '';
+
+  function buildCompassHTML() {
+    return _CALIB_DIRS.map(d => {
+      const assigned    = _calibMap[d.idx];
+      const isThisFrame = assigned === _calibFrame;
+      return `<button class="calib-dir-btn${isThisFrame ? ' this-frame' : ''}"
+        data-dir-idx="${d.idx}"
+        style="grid-column:${d.col};grid-row:${d.row}"
+        title="Assign frame ${_calibFrame} to ${d.label}">
+        <span class="calib-dir-label">${d.label}</span>
+        <span class="calib-dir-badge">${assigned}</span>
+      </button>`;
+    }).join('') + `<div class="calib-compass-center" style="grid-column:2;grid-row:2">✦</div>`;
+  }
+
+  function buildFilmstripHTML() {
+    return Array.from({ length: frameCount }, (_, fi) => {
+      const dirs = _CALIB_DIRS.filter(d => _calibMap[d.idx] === fi).map(d => d.label);
+      const pct  = _bgPosPct(fi, frameCount);
+      return `<div class="calib-film-frame${fi === _calibFrame ? ' active' : ''}" data-frame="${fi}">
+        <div class="calib-film-thumb" style="background-image:url(${spriteUrl});--fc:${frameCount};background-position-x:${pct.toFixed(2)}%"></div>
+        <div class="calib-film-dirs">${dirs.join(' ') || '·'}</div>
+      </div>`;
+    }).join('');
+  }
+
+  const calibSection = hasSheet ? `
+    <div class="prop-detail-section">
+      <div class="prop-detail-section-label">// DIRECTIONAL CALIBRATION</div>
+      <div class="prop-calib-workspace">
+        <div class="prop-calib-viewer">
+          <div class="prop-calib-strip" id="prop-calib-strip"
+               style="background-image:url(${spriteUrl});--frame-count:${frameCount};background-position-x:0%"></div>
+          <div class="prop-calib-controls">
+            <button class="prop-ctrl-btn" id="calib-play-btn">▶</button>
+            <button class="prop-ctrl-btn" id="calib-prev-btn">◀</button>
+            <span class="prop-calib-frame-label" id="prop-frame-label">0&thinsp;/&thinsp;${frameCount}</span>
+            <button class="prop-ctrl-btn" id="calib-next-btn">▶</button>
+          </div>
+        </div>
+        <div class="prop-calib-compass" id="prop-calib-compass">
+          ${buildCompassHTML()}
+        </div>
+      </div>
+      <div class="prop-calib-hint">Shuttle frames · click a direction to assign current frame</div>
+      <div class="prop-calib-filmstrip" id="prop-calib-filmstrip">${buildFilmstripHTML()}</div>
+    </div>` : (!rotJob ? '' : `
+    <div class="prop-rotation-placeholder">${
+      rotJob.status === 'failed' ? '360° rotation failed.' : '360° rotation rendering…'
+    }</div>`);
+
+  detail.innerHTML = `
+    <div class="prop-detail-prompt">${escapeHtml(p.prompt)}</div>
+
+    <div class="prop-detail-section">
+      <div class="prop-detail-section-label">// PLACEMENT</div>
+      <div class="prop-detail-field">
+        <label class="prop-detail-label">Area types <span class="prop-detail-hint">(comma-separated: dungeon, cave, forest…)</span></label>
+        <input id="prop-area-types" class="prop-detail-input" type="text" value="${escapeHtml(areaTypesVal)}" placeholder="dungeon, cave, ruins…" />
+      </div>
+      <div class="prop-detail-field-row">
+        <div class="prop-detail-field">
+          <label class="prop-detail-label">HP <span class="prop-detail-hint">(0 = indestructible)</span></label>
+          <input id="prop-hp" class="prop-detail-input" type="number" min="0" step="1" value="${p.hp ?? 0}" />
+        </div>
+        <div class="prop-detail-field">
+          <label class="prop-detail-label">Collider radius</label>
+          <input id="prop-collider-radius" class="prop-detail-input" type="number" min="0.1" max="5" step="0.05" value="${p.collider_radius ?? 0.5}" />
+        </div>
+      </div>
+      <div class="prop-detail-field">
+        <label class="prop-detail-label">Notes</label>
+        <textarea id="prop-notes" class="prop-detail-textarea" rows="2">${escapeHtml(p.notes ?? '')}</textarea>
+      </div>
+    </div>
+
+    ${calibSection}
+
+    <div class="prop-detail-section">
+      <div class="prop-detail-section-label">// STATES</div>
+      <button class="prop-action-btn" id="prop-regen-damaged-btn">↺ REGEN DAMAGED STATE</button>
+    </div>
+
+    <div class="prop-detail-footer">
+      <div id="prop-save-status" class="prop-save-status" data-state="idle"></div>
+      <button class="prop-action-btn prop-save-btn" id="prop-save-btn">SAVE CONFIG</button>
+    </div>`;
+
+  // Wire calibration controls
+  if (hasSheet) {
+    const strip = document.getElementById('prop-calib-strip');
+    const label = document.getElementById('prop-frame-label');
+
+    function _stopPlay() {
+      if (_calibInterval) { clearInterval(_calibInterval); _calibInterval = null; }
+      document.getElementById('calib-play-btn').textContent = '▶';
+    }
+
+    function _refreshCompass() {
+      document.querySelectorAll('.calib-dir-btn').forEach(btn => {
+        const di   = parseInt(btn.dataset.dirIdx);
+        const asgn = _calibMap[di];
+        btn.classList.toggle('this-frame', asgn === _calibFrame);
+        btn.querySelector('.calib-dir-badge').textContent = asgn;
+        const dName = _CALIB_DIRS.find(d => d.idx === di)?.label ?? di;
+        btn.title = `Assign frame ${_calibFrame} to ${dName}`;
+      });
+    }
+
+    function _refreshFilmstrip() {
+      document.querySelectorAll('.calib-film-frame').forEach(el => {
+        const fi = parseInt(el.dataset.frame);
+        el.classList.toggle('active', fi === _calibFrame);
+        const dirs = _CALIB_DIRS.filter(d => _calibMap[d.idx] === fi).map(d => d.label);
+        el.querySelector('.calib-film-dirs').textContent = dirs.join(' ') || '·';
+      });
+    }
+
+    function showFrame(f) {
+      _calibFrame = ((f % frameCount) + frameCount) % frameCount;
+      const pct = _bgPosPct(_calibFrame, frameCount);
+      strip.style.backgroundPositionX = `${pct.toFixed(2)}%`;
+      label.textContent = `${_calibFrame} / ${frameCount}`;
+      _refreshCompass();
+      _refreshFilmstrip();
+    }
+
+    document.getElementById('calib-prev-btn').addEventListener('click', () => { _stopPlay(); showFrame(_calibFrame - 1); });
+    document.getElementById('calib-next-btn').addEventListener('click', () => { _stopPlay(); showFrame(_calibFrame + 1); });
+    document.getElementById('calib-play-btn').addEventListener('click', () => {
+      if (_calibInterval) { _stopPlay(); return; }
+      document.getElementById('calib-play-btn').textContent = '⏸';
+      _calibInterval = setInterval(() => showFrame(_calibFrame + 1), 160);
+    });
+
+    // Compass: click a direction to assign the current frame to it
+    document.querySelectorAll('.calib-dir-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        _calibMap[parseInt(btn.dataset.dirIdx)] = _calibFrame;
+        _refreshCompass();
+        _refreshFilmstrip();
+      });
+    });
+
+    // Filmstrip: click a thumbnail to jump to that frame
+    document.querySelectorAll('.calib-film-frame').forEach(el => {
+      el.addEventListener('click', () => { _stopPlay(); showFrame(parseInt(el.dataset.frame)); });
+    });
+  }
+
+  document.getElementById('prop-save-btn').addEventListener('click', () => savePropConfig(p.job_id, rotJob?.id));
+  document.getElementById('prop-regen-damaged-btn').addEventListener('click', () => regenDamagedState(p.job_id));
+}
+
+async function savePropConfig(jobId, rotJobId) {
+  const btn = document.getElementById('prop-save-btn');
+  const statusEl = document.getElementById('prop-save-status');
+  btn.disabled = true;
+  statusEl.dataset.state = 'saving'; statusEl.textContent = 'saving…';
+
+  try {
+    const frameMap = [..._calibMap];
+
+    const body = {
+      area_types:      document.getElementById('prop-area-types').value.split(',').map(s => s.trim()).filter(Boolean),
+      hp:              parseInt(document.getElementById('prop-hp').value) || 0,
+      collider_radius: parseFloat(document.getElementById('prop-collider-radius').value) || 0.5,
+      notes:           document.getElementById('prop-notes').value,
+    };
+    await fetch(`${FORGE_BASE}/prop-catalog/${jobId}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (rotJobId && frameMap.length) {
+      await fetch(`${FORGE_BASE}/rotation-jobs/${rotJobId}/calibrate`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frame_map: frameMap }),
+      });
+    }
+
+    statusEl.dataset.state = 'saved'; statusEl.textContent = 'saved';
+    setTimeout(() => { statusEl.dataset.state = 'idle'; statusEl.textContent = ''; }, 2500);
+    loadPropCatalogue();
+  } catch (e) {
+    statusEl.dataset.state = 'error'; statusEl.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function regenDamagedState(jobId) {
+  const btn = document.getElementById('prop-regen-damaged-btn');
+  btn.disabled = true; btn.textContent = '↺ QUEUING…';
+  try {
+    const res = await fetch(`${FORGE_BASE}/jobs/${jobId}/variants/damage`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile_id: profileId }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    btn.textContent = '↺ QUEUED';
+    setTimeout(() => { btn.disabled = false; btn.textContent = '↺ REGEN DAMAGED STATE'; }, 3000);
+  } catch (e) {
+    btn.textContent = `ERROR: ${e.message.slice(0, 30)}`;
+    setTimeout(() => { btn.disabled = false; btn.textContent = '↺ REGEN DAMAGED STATE'; }, 3000);
+  }
+}
+
+document.getElementById('prop-catalogue-close-btn').addEventListener('click', closePropCataloguePanel);
+document.getElementById('prop-spawn-btn').addEventListener('click', () => {
+  closePropCataloguePanel();
+  document.dispatchEvent(new CustomEvent('open-terminal-prop-mode'));
+});

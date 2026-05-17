@@ -16,16 +16,20 @@ All tunable values (workflows, prompt templates, lore) live in config.py
 and are read at job-creation time so changes take effect without restart.
 """
 
+import glob
 import json
 import logging
 import os
 import queue
 import random
+import subprocess
 import threading
 import time
 import uuid
 from io import BytesIO
 from typing import Optional
+
+import numpy as np
 
 import dotenv
 import requests
@@ -89,6 +93,10 @@ def build_variant_prompt(variant_type: str) -> str:
     """Return the prompt for a variant render. No subject description —
     the edit workflow's init_image already carries identity."""
     return config.get(f"{variant_type}_prompt_template") or ""
+
+def build_prop_prompt(user_prompt: str) -> str:
+    tpl = config.get("prop_prompt_template")
+    return tpl.format(user_prompt=user_prompt.strip())
 
 def build_frame_prompt(suffix: str) -> str:
     """Return the pose-only prompt for a single walk-cycle frame. No character
@@ -173,6 +181,7 @@ class JobRequest(BaseModel):
     profile_id: str
     prompt_modifier: Optional[str] = None   # active scaffold modifier from lore-engine
     stat_tier: Optional[float] = None       # 0.0-1.0 from scaffold archetype; None = roll random
+    job_type: Optional[str] = None          # 'entity' | 'prop'; if None falls back to spawn_pipeline config
 
 class VariantRequest(BaseModel):
     profile_id: str
@@ -222,6 +231,17 @@ class VariantJob(BaseModel):
     created_at: float
     finished_at: Optional[float] = None
 
+class RotationJob(BaseModel):
+    id: str
+    sprite_job_id: str
+    status: str            # queued | rendering | processing | done | failed
+    sprite_name: Optional[str] = None
+    frame_count: int = 8
+    frame_map: list = []   # calibration: index i → actual frame to show at that angle slot
+    error: Optional[str] = None
+    created_at: float
+    finished_at: Optional[float] = None
+
 JOBS:         dict[str, Job]        = {}
 VARIANT_JOBS: dict[str, VariantJob] = {}
 
@@ -230,6 +250,9 @@ VARIANT_JOB_QUEUE: "queue.Queue[str]" = queue.Queue()
 
 JOBS_LOCK         = threading.Lock()
 VARIANT_JOBS_LOCK = threading.Lock()
+ROTATION_JOBS: dict[str, RotationJob] = {}
+ROTATION_JOB_QUEUE: "queue.Queue[str]" = queue.Queue()
+ROTATION_JOBS_LOCK = threading.Lock()
 _PERSIST_LOCK     = threading.Lock()
 
 _JOBS_PATH = os.path.join(os.path.dirname(__file__), "jobs.json")
@@ -363,6 +386,38 @@ def process_sprite(raw_bytes: bytes, out_path: str) -> None:
         cleaned = cleaned.crop(bbox)
     cleaned.save(out_path, "PNG")
 
+def process_prop(raw_bytes: bytes, out_path: str, luma_threshold: int = 240) -> None:
+    """Luminance-mask a white-background prop render.
+    Pixels whose luminance exceeds luma_threshold become transparent.
+    Avoids rembg which performs poorly on hard-edged objects."""
+    raw = Image.open(BytesIO(raw_bytes)).convert("RGBA")
+    arr = np.array(raw, dtype=np.float32)
+    luma = 0.2126 * arr[..., 0] + 0.7152 * arr[..., 1] + 0.0722 * arr[..., 2]
+    arr[..., 3] = np.where(luma > luma_threshold, 0, arr[..., 3])
+    cleaned = Image.fromarray(arr.astype(np.uint8))
+    bbox = cleaned.getbbox()
+    if bbox:
+        cleaned = cleaned.crop(bbox)
+    cleaned.save(out_path, "PNG")
+
+def extract_rotation_frames(video_path: str, frame_count: int) -> list[str]:
+    """Extract N evenly-spaced frames from a video file using ffmpeg.
+    Returns a list of PNG file paths saved alongside the video.
+    Caller is responsible for deleting them."""
+    tmpdir = os.path.join(SPRITES_DIR, f"_frames_{os.path.basename(video_path)}")
+    os.makedirs(tmpdir, exist_ok=True)
+    pattern = os.path.join(tmpdir, "%04d.png")
+    subprocess.run(
+        ["ffmpeg", "-v", "quiet", "-i", video_path, pattern],
+        check=True, timeout=120,
+    )
+    all_frames = sorted(glob.glob(os.path.join(tmpdir, "*.png")))
+    if not all_frames:
+        raise RuntimeError(f"ffmpeg produced no frames from {video_path}")
+    total = len(all_frames)
+    indices = [int(i * total / frame_count) % total for i in range(frame_count)]
+    return [all_frames[idx] for idx in indices]
+
 def render_worker():
     log.info("sprite worker started")
     while True:
@@ -389,23 +444,38 @@ def render_worker():
             resp.raise_for_status()
 
             sprite_name = f"{job.id}.png"
-            process_sprite(resp.content, os.path.join(SPRITES_DIR, sprite_name))
+            threshold   = int(config.get("prop_luma_threshold") or 240)
 
-            # Auto-queue variant states: entity jobs get combat poses,
-            # item jobs get presentation variants (icon + world).
-            auto_vtypes = ENTITY_VARIANT_TYPES if job.job_type == "entity" else ITEM_VARIANT_TYPES
-            variant_ids: dict = {}
-            for vtype in auto_vtypes:
-                vid = uuid.uuid4().hex[:8]
-                vprompt = build_variant_prompt(vtype)
-                vj = VariantJob(
-                    id=vid, sprite_job_id=job.id, variant_type=vtype,
-                    prompt=vprompt, status="queued", created_at=time.time(),
+            if job.job_type == "prop":
+                process_prop(resp.content, os.path.join(SPRITES_DIR, sprite_name), threshold)
+                # Queue rotation job (WAN 360°) instead of entity variants
+                rot_id = uuid.uuid4().hex[:8]
+                frame_count = int(config.get("prop_frame_count") or 8)
+                rj = RotationJob(
+                    id=rot_id, sprite_job_id=job.id, status="queued",
+                    frame_count=frame_count, created_at=time.time(),
                 )
-                with VARIANT_JOBS_LOCK:
-                    VARIANT_JOBS[vid] = vj
-                VARIANT_JOB_QUEUE.put(vid)
-                variant_ids[vtype] = vid
+                with ROTATION_JOBS_LOCK:
+                    ROTATION_JOBS[rot_id] = rj
+                ROTATION_JOB_QUEUE.put(rot_id)
+                variant_ids: dict = {"rotation": rot_id}
+            else:
+                process_sprite(resp.content, os.path.join(SPRITES_DIR, sprite_name))
+                # Auto-queue variant states: entity jobs get combat poses,
+                # item jobs get presentation variants (icon + world).
+                auto_vtypes = ENTITY_VARIANT_TYPES if job.job_type == "entity" else ITEM_VARIANT_TYPES
+                variant_ids = {}
+                for vtype in auto_vtypes:
+                    vid = uuid.uuid4().hex[:8]
+                    vprompt = build_variant_prompt(vtype)
+                    vj = VariantJob(
+                        id=vid, sprite_job_id=job.id, variant_type=vtype,
+                        prompt=vprompt, status="queued", created_at=time.time(),
+                    )
+                    with VARIANT_JOBS_LOCK:
+                        VARIANT_JOBS[vid] = vj
+                    VARIANT_JOB_QUEUE.put(vid)
+                    variant_ids[vtype] = vid
 
             with JOBS_LOCK:
                 job.sprite_name     = sprite_name
@@ -529,8 +599,104 @@ def variant_worker():
         finally:
             VARIANT_JOB_QUEUE.task_done()
 
+def rotation_worker():
+    log.info("rotation worker started")
+    while True:
+        rot_id = ROTATION_JOB_QUEUE.get()
+        try:
+            with ROTATION_JOBS_LOCK:
+                rj = ROTATION_JOBS[rot_id]
+                rj.status = "rendering"
+
+            with JOBS_LOCK:
+                sprite_job = JOBS[rj.sprite_job_id]
+
+            api_key    = profiles.get_api_key(sprite_job.profile_id)
+            source_url = sprite_job.source_url
+            if not api_key or not source_url:
+                raise RuntimeError("missing api key or source url for rotation job")
+
+            rotation_workflow = config.get("prop_rotation_workflow") or "animate-wan22"
+            frame_count = int(rj.frame_count)
+
+            collected: dict = {"url": None}
+            def on_event(event):
+                if "rendering_done" in event:
+                    data = event["rendering_done"]
+                    info = graydient_client.render_info(data["render_hash"], api_key)
+                    collected["url"] = graydient_client.extract_image_url(info)
+                    log.info("[rotation %s] video url=%s", rot_id, collected["url"])
+
+            log.info("[rotation %s] submitting to %s", rot_id, rotation_workflow)
+            graydient_client.render_create(
+                prompt="smooth 360 degree turntable rotation, full object visible",
+                workflow=rotation_workflow,
+                api_key=api_key,
+                on_event=on_event,
+                init_image=source_url,
+            )
+
+            if not collected["url"]:
+                raise RuntimeError("rotation stream closed with no URL")
+
+            with ROTATION_JOBS_LOCK:
+                rj.status = "processing"
+
+            log.info("[rotation %s] downloading video", rot_id)
+            resp = requests.get(collected["url"], timeout=300)
+            resp.raise_for_status()
+
+            video_path = os.path.join(SPRITES_DIR, f"{rot_id}_rotation.mp4")
+            with open(video_path, "wb") as f:
+                f.write(resp.content)
+
+            log.info("[rotation %s] extracting %d frames", rot_id, frame_count)
+            frame_paths = extract_rotation_frames(video_path, frame_count)
+
+            threshold = int(config.get("prop_luma_threshold") or 240)
+            masked_paths = []
+            for i, fp in enumerate(frame_paths):
+                with open(fp, "rb") as fh:
+                    raw_bytes = fh.read()
+                masked_path = os.path.join(SPRITES_DIR, f"{rot_id}_rf{i}.png")
+                process_prop(raw_bytes, masked_path, threshold)
+                masked_paths.append(masked_path)
+
+            sheet_img  = stitch_frames(masked_paths)
+            sprite_name = f"{rot_id}_rotation_sheet.png"
+            sheet_img.save(os.path.join(SPRITES_DIR, sprite_name), "PNG")
+
+            # Cleanup temp files
+            tmpdir = os.path.join(SPRITES_DIR, f"_frames_{os.path.basename(video_path)}")
+            for p in frame_paths + masked_paths:
+                try: os.remove(p)
+                except OSError: pass
+            try:
+                os.rmdir(tmpdir)
+                os.remove(video_path)
+            except OSError:
+                pass
+
+            with ROTATION_JOBS_LOCK:
+                rj.sprite_name = sprite_name
+                rj.frame_count = frame_count
+                rj.status      = "done"
+                rj.finished_at = time.time()
+
+            log.info("[rotation %s] sheet saved: %s (%d frames)", rot_id, sprite_name, frame_count)
+
+        except Exception:
+            log.exception("[rotation %s] FAILED", rot_id)
+            with ROTATION_JOBS_LOCK:
+                if rot_id in ROTATION_JOBS:
+                    ROTATION_JOBS[rot_id].status = "failed"
+                    ROTATION_JOBS[rot_id].finished_at = time.time()
+        finally:
+            ROTATION_JOB_QUEUE.task_done()
+
 threading.Thread(target=render_worker,  daemon=True).start()
 threading.Thread(target=variant_worker, daemon=True).start()
+threading.Thread(target=rotation_worker, daemon=True).start()
 
 # ---------- API ----------
 
@@ -591,16 +757,27 @@ def create_job(req: JobRequest):
     if not profiles.get_api_key(req.profile_id):
         raise HTTPException(401, "session expired — please log in again")
     job_id = uuid.uuid4().hex[:8]
+    if req.job_type in ("entity", "prop"):
+        job_type = req.job_type
+    else:
+        pipeline = config.get("spawn_pipeline") or "turnaround"
+        job_type = "prop" if pipeline == "prop" else "entity"
     stat_tier = req.stat_tier if req.stat_tier is not None else 0.5
+    if job_type == "prop":
+        full_prompt  = build_prop_prompt(prompt)
+        entity_stats = None
+    else:
+        full_prompt  = build_sprite_prompt(prompt, req.prompt_modifier or "")
+        entity_stats = roll_entity_stats(stat_tier)
     job = Job(
         id=job_id,
         profile_id=req.profile_id,
         prompt=prompt,
-        full_prompt=build_sprite_prompt(prompt, req.prompt_modifier or ""),
+        full_prompt=full_prompt,
         status="queued",
         created_at=time.time(),
-        job_type="entity",
-        entity_stats=roll_entity_stats(stat_tier),
+        job_type=job_type,
+        entity_stats=entity_stats,
     )
     with JOBS_LOCK:
         JOBS[job_id] = job
@@ -662,6 +839,84 @@ def trigger_variant(sprite_job_id: str, variant_type: str, req: VariantRequest):
 
     log.info("[%s] variant %s re-queued as %s", sprite_job_id, variant_type, var_id)
     return vj
+
+# -- rotation jobs --
+
+@app.get("/rotation-jobs/{rot_job_id}")
+def get_rotation_job(rot_job_id: str):
+    with ROTATION_JOBS_LOCK:
+        if rot_job_id not in ROTATION_JOBS:
+            raise HTTPException(404, "no such rotation job")
+        return ROTATION_JOBS[rot_job_id]
+
+@app.get("/rotation-jobs")
+def list_rotation_jobs():
+    with ROTATION_JOBS_LOCK:
+        return list(ROTATION_JOBS.values())
+
+@app.put("/rotation-jobs/{rot_job_id}/calibrate")
+async def calibrate_rotation(rot_job_id: str, request: Request):
+    body = await request.json()
+    frame_map = body.get("frame_map", [])
+    with ROTATION_JOBS_LOCK:
+        if rot_job_id not in ROTATION_JOBS:
+            raise HTTPException(404, "no such rotation job")
+        ROTATION_JOBS[rot_job_id].frame_map = frame_map
+    return {"ok": True}
+
+# -- prop catalog --
+
+@app.get("/prop-catalog")
+def get_prop_catalog():
+    """Return all prop catalog entries merged with their job and rotation data."""
+    with _PROP_CATALOG_LOCK:
+        catalog = _load_prop_catalog()
+    result = []
+    with JOBS_LOCK:
+        prop_jobs = [j for j in JOBS.values() if j.job_type == "prop"]
+    for job in prop_jobs:
+        meta = catalog.get(job.id, {})
+        rot_job = None
+        rot_id = (job.variant_job_ids or {}).get("rotation")
+        if rot_id:
+            with ROTATION_JOBS_LOCK:
+                rj = ROTATION_JOBS.get(rot_id)
+                if rj:
+                    rot_job = rj.model_dump()
+        result.append({
+            "job_id":          job.id,
+            "prompt":          job.prompt,
+            "status":          job.status,
+            "sprite_name":     job.sprite_name,
+            "rotation_job":    rot_job,
+            "area_types":      meta.get("area_types", []),
+            "hp":              meta.get("hp", 0),
+            "collider_radius": meta.get("collider_radius", 0.5),
+            "notes":           meta.get("notes", ""),
+        })
+    return result
+
+@app.put("/prop-catalog/{job_id}")
+async def upsert_prop_catalog(job_id: str, request: Request):
+    body = await request.json()
+    with _PROP_CATALOG_LOCK:
+        catalog = _load_prop_catalog()
+        catalog[job_id] = {
+            "area_types":      body.get("area_types", []),
+            "hp":              body.get("hp", 0),
+            "collider_radius": body.get("collider_radius", 0.5),
+            "notes":           body.get("notes", ""),
+        }
+        _save_prop_catalog(catalog)
+    return {"ok": True}
+
+@app.delete("/prop-catalog/{job_id}")
+def delete_prop_catalog(job_id: str):
+    with _PROP_CATALOG_LOCK:
+        catalog = _load_prop_catalog()
+        catalog.pop(job_id, None)
+        _save_prop_catalog(catalog)
+    return {"ok": True}
 
 # -- items --
 
@@ -786,6 +1041,22 @@ def register_pose(req: PoseRegisterRequest):
     return {"slug": slug, "frame_type": frame_type}
 
 # -- experiences --
+
+_PROP_CATALOG_PATH = os.path.join(os.path.dirname(__file__), "prop_catalog.json")
+_PROP_CATALOG_LOCK = threading.Lock()
+
+def _load_prop_catalog() -> dict:
+    if not os.path.exists(_PROP_CATALOG_PATH):
+        return {}
+    try:
+        with open(_PROP_CATALOG_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_prop_catalog(catalog: dict) -> None:
+    with open(_PROP_CATALOG_PATH, "w") as f:
+        json.dump(catalog, f, indent=2)
 
 _EXPERIENCES_PATH = os.path.join(os.path.dirname(__file__), "experiences.json")
 _EXP_LOCK = threading.Lock()

@@ -12,6 +12,7 @@ import { renderer, roomScene, roomCamera, brazier, controls } from './scene.js';
 import {
   createEntityHpBar, refreshEntityHpBar, updateHpBarTransforms,
   refreshJobList, spawnDamageNumber, flashHit, updatePlayerHud,
+  addCombatLine,
 } from './hud.js';
 import { getEquipBonus, onPlayerDeath, killEntity } from './combat.js';
 import { getActivePromptModifier, getStatTier } from './lore-engine.js';
@@ -33,6 +34,9 @@ const POLL_MS        = 3000;
 const VARIANT_TYPES = ['corpse', 'damage', 'back'];
 
 export { VARIANT_TYPES };
+
+export const propColliders = new Set();
+// Each entry: { entry, radius, mesh (the sprite mesh for position) }
 
 export const textureLoader = new THREE.TextureLoader();
 
@@ -143,6 +147,55 @@ export function loadWalkSheet(spriteName, frameCount, variantType, entry) {
 }
 
 // ─────────────────────────────────────────────
+// ROTATION SHEET (props)
+// ─────────────────────────────────────────────
+
+export function loadRotationSheet(spriteName, frameCount, entry) {
+  const url = `${FORGE_BASE}/sprites/${spriteName}`;
+  textureLoader.load(url, (tex) => {
+    tex.magFilter = THREE.NearestFilter;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.repeat.set(1 / frameCount, 1);
+    tex.offset.set(0, 0);
+    const frameAspect = (tex.image.width / frameCount) / tex.image.height;
+    const mat = new THREE.MeshStandardMaterial({
+      map: tex, transparent: true, alphaTest: 0.15, depthWrite: true,
+      roughness: 1, metalness: 0, side: THREE.DoubleSide,
+    });
+    entry.rotationSheet    = { mat, tex, frameCount, frameAspect };
+    entry.rotationFrameMap = null;  // populated by calibration if used
+  }, undefined, (err) => console.error('rotation sheet load failed', err));
+}
+
+export async function pollRotationJob(rotJobId, entry) {
+  while (true) {
+    await new Promise(r => setTimeout(r, POLL_MS));
+    let rj;
+    try {
+      const res = await fetch(`${FORGE_BASE}/rotation-jobs/${rotJobId}`);
+      if (!res.ok) throw new Error(res.status);
+      rj = await res.json();
+    } catch (e) { console.warn('rotation poll error', rotJobId, e); continue; }
+    if (rj.status === 'done' && rj.sprite_name) {
+      loadRotationSheet(rj.sprite_name, rj.frame_count, entry);
+      if (rj.frame_map?.length) entry.rotationFrameMap = rj.frame_map;
+      return;
+    }
+    if (rj.status === 'failed') return;
+  }
+}
+
+export function removePropCollider(entry) {
+  propColliders.delete(entry);
+}
+
+export function initPropStats(entry, hp) {
+  entry.stats = { hp, maxHp: hp, attack: 0, defense: 0, xpReward: 0, level: 1 };
+  entry.aiState = 'static';
+}
+
+// ─────────────────────────────────────────────
 // SPAWNING
 // ─────────────────────────────────────────────
 
@@ -150,7 +203,7 @@ export function loadWalkSheet(spriteName, frameCount, variantType, entry) {
 let _termStatus = null;
 export function setTermStatus(el) { _termStatus = el; }
 
-export async function spawnFromPrompt(promptText) {
+export async function spawnFromPrompt(promptText, jobType = 'entity') {
   if (!promptText || !profileId) return;
   let job;
   try {
@@ -159,6 +212,7 @@ export async function spawnFromPrompt(promptText) {
       profile_id:      profileId,
       prompt_modifier: getActivePromptModifier() || undefined,
       stat_tier:       getStatTier(promptText),
+      job_type:        jobType,   // explicit, overrides server config
     };
     const res = await fetch(`${FORGE_BASE}/jobs`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -193,41 +247,64 @@ export async function pollJob(jobId) {
     entry.status = job.status;
     refreshJobList();
     if (job.status === 'done') {
-      // Read combat stats from job (rolled server-side at creation time)
-      if (job.entity_stats) {
-        entry.stats = {
-          hp:        job.entity_stats.hp,
-          maxHp:     job.entity_stats.max_hp,
-          attack:    job.entity_stats.attack,
-          defense:   job.entity_stats.defense,
-          xpReward:  job.entity_stats.xp_reward,
-          level:     job.entity_stats.level,
-        };
-        entry.aiState       = 'roam';
-        entry.lastAttackTime = 0;
-      }
-      makeSprite(job.sprite_name, entry.position, (sprite, floorY, tex, src) => {
-        roomScene.remove(entry.mesh);
-        entry.mesh.material?.dispose(); entry.mesh.geometry?.dispose();
-        roomScene.add(sprite);
-        entry.mesh    = sprite;
-        entry.floorY  = floorY;
-        entry.roam    = initRoam();
-        entry.frontTex    = tex;
-        entry.frontAspect = tex.image.width / tex.image.height;
-        entry.frontMat    = sprite.material;
-        entry.spriteSrc   = src;
-        entry.shadowBlob  = createShadowBlob();
-        if (entry.stats) {
-          entry.hpBar = createEntityHpBar();
-          refreshEntityHpBar(entry);
+      if (job.job_type === 'prop') {
+        // ── PROP: static object, no AI, angle-aware rotation sheet ──
+        entry.jobType = 'prop';
+        entry.aiState = 'static';
+        makeSprite(job.sprite_name, entry.position, (sprite, floorY, tex, src) => {
+          roomScene.remove(entry.mesh);
+          entry.mesh.material?.dispose(); entry.mesh.geometry?.dispose();
+          roomScene.add(sprite);
+          entry.mesh       = sprite;
+          entry.floorY     = floorY;
+          entry.frontMat   = sprite.material;
+          entry.spriteSrc  = src;
+          entry.shadowBlob = createShadowBlob();
+          // Register a collision cylinder at the prop's base
+          const radius = (SPRITE_WORLD_H * (entry.frontAspect ?? 1)) * 0.35;
+          entry.colliderRadius = radius;
+          propColliders.add(entry);
+        });
+        // Poll for WAN rotation sheet
+        const rotJobId = job.variant_job_ids?.rotation;
+        if (rotJobId) pollRotationJob(rotJobId, entry);
+      } else {
+        // ── CHARACTER: combat AI, walk variants ──
+        if (job.entity_stats) {
+          entry.stats = {
+            hp:        job.entity_stats.hp,
+            maxHp:     job.entity_stats.max_hp,
+            attack:    job.entity_stats.attack,
+            defense:   job.entity_stats.defense,
+            xpReward:  job.entity_stats.xp_reward,
+            level:     job.entity_stats.level,
+          };
+          entry.aiState        = 'roam';
+          entry.lastAttackTime = 0;
         }
-      });
-      if (job.variant_job_ids && Object.keys(job.variant_job_ids).length) {
-        if (!entry.variants) entry.variants = {};
-        for (const [vtype, vid] of Object.entries(job.variant_job_ids)) {
-          entry.variants[vtype] = { jobId: vid, status: 'queued', spriteName: null };
-          pollVariantJob(vid, vtype, entry);
+        makeSprite(job.sprite_name, entry.position, (sprite, floorY, tex, src) => {
+          roomScene.remove(entry.mesh);
+          entry.mesh.material?.dispose(); entry.mesh.geometry?.dispose();
+          roomScene.add(sprite);
+          entry.mesh        = sprite;
+          entry.floorY      = floorY;
+          entry.roam        = initRoam();
+          entry.frontTex    = tex;
+          entry.frontAspect = tex.image.width / tex.image.height;
+          entry.frontMat    = sprite.material;
+          entry.spriteSrc   = src;
+          entry.shadowBlob  = createShadowBlob();
+          if (entry.stats) {
+            entry.hpBar = createEntityHpBar();
+            refreshEntityHpBar(entry);
+          }
+        });
+        if (job.variant_job_ids && Object.keys(job.variant_job_ids).length) {
+          if (!entry.variants) entry.variants = {};
+          for (const [vtype, vid] of Object.entries(job.variant_job_ids)) {
+            entry.variants[vtype] = { jobId: vid, status: 'queued', spriteName: null };
+            pollVariantJob(vid, vtype, entry);
+          }
         }
       }
       return;
@@ -321,6 +398,51 @@ export async function loadJobHistory() {
 // ENTITY AI + ANIMATION
 // ─────────────────────────────────────────────
 
+// ─────────────────────────────────────────────
+// ENTITY ATTACK PARTICLE BURST
+// ─────────────────────────────────────────────
+
+function _entityAttackParticles(fromPos, toPos) {
+  const dir = new THREE.Vector3().subVectors(toPos, fromPos).normalize();
+  const sparks = [];
+  for (let i = 0; i < 7; i++) {
+    const sGeo = new THREE.SphereGeometry(0.04, 3, 3);
+    const sMat = new THREE.MeshBasicMaterial({ color: 0xcc3311, transparent: true });
+    const s    = new THREE.Mesh(sGeo, sMat);
+    s.position.set(
+      fromPos.x + (Math.random() - 0.5) * 0.2,
+      fromPos.y + 0.9 + Math.random() * 0.3,
+      fromPos.z + (Math.random() - 0.5) * 0.2,
+    );
+    const spread = (Math.random() - 0.5) * 1.4;
+    s.userData.vel = new THREE.Vector3(
+      dir.x * 3.5 + spread,
+      0.8 + Math.random() * 1.2,
+      dir.z * 3.5 + spread,
+    );
+    roomScene.add(s);
+    sparks.push({ mesh: s, geo: sGeo, mat: sMat });
+  }
+  const t0 = performance.now();
+  let prev = t0;
+  (function animate() {
+    const now2 = performance.now();
+    const fdt  = (now2 - prev) / 1000;
+    prev = now2;
+    const prog = (now2 - t0) / 380;
+    if (prog >= 1) {
+      for (const s of sparks) { roomScene.remove(s.mesh); s.geo.dispose(); s.mat.dispose(); }
+      return;
+    }
+    for (const s of sparks) {
+      s.mesh.position.addScaledVector(s.mesh.userData.vel, fdt);
+      s.mesh.userData.vel.y -= 5 * fdt;
+      s.mat.opacity = 1 - prog;
+    }
+    requestAnimationFrame(animate);
+  })();
+}
+
 export function initRoam() {
   return { target: randomRoamTarget(), waitUntil: 0, speed: ROAM_SPEED_MIN + Math.random() * (ROAM_SPEED_MAX - ROAM_SPEED_MIN) };
 }
@@ -333,6 +455,42 @@ export function updateEntities(dt) {
   for (const e of sprites.values()) {
     if (e.status !== 'done' || !e.mesh || e.mesh.userData.isPlaceholder) continue;
     if (e.aiState === 'dead') continue;
+
+    // ── PROP: static object, angle-aware frame selection ─────────────
+    if (e.jobType === 'prop') {
+      // Bearing from prop toward player → select rotation sheet frame
+      if (e.rotationSheet) {
+        const rs  = e.rotationSheet;
+        const dx  = playerPos.x - e.mesh.position.x;
+        const dz  = playerPos.z - e.mesh.position.z;
+        const raw = Math.atan2(dx, dz);                      // -π … π
+        const t   = (((raw / (Math.PI * 2)) % 1) + 1) % 1;  // 0 … 1
+        const fi  = Math.floor(t * rs.frameCount) % rs.frameCount;
+        const mappedFi = e.rotationFrameMap?.length
+          ? (e.rotationFrameMap[fi] ?? fi)
+          : fi;
+        rs.tex.offset.x = mappedFi / rs.frameCount;
+        if (e.mesh.material !== rs.mat) {
+          e.mesh.material = rs.mat;
+          e.mesh.scale.x  = SPRITE_WORLD_H * rs.frameAspect;
+        }
+      }
+      // Billboard (y-axis only, same as characters)
+      const pdx = roomCamera.position.x - e.mesh.position.x;
+      const pdz = roomCamera.position.z - e.mesh.position.z;
+      e.mesh.rotation.y = Math.atan2(pdx, pdz);
+      // Shadow blob
+      if (e.shadowBlob) {
+        const sx = e.mesh.position.x - brazier.position.x;
+        const sz = e.mesh.position.z - brazier.position.z;
+        const sd = Math.sqrt(sx * sx + sz * sz);
+        const nx = sd > 0.01 ? sx / sd : 0;
+        const nz = sd > 0.01 ? sz / sd : 1;
+        e.shadowBlob.position.set(e.mesh.position.x + nx * 0.3, 0.016, e.mesh.position.z + nz * 0.3);
+        e.shadowBlob.material.opacity = Math.max(0.04, 0.5 * (1 - sd / 13));
+      }
+      continue;  // props skip all AI / animation logic below
+    }
 
     let moving = false;
     let dirX = 0, dirZ = 0;
@@ -371,6 +529,8 @@ export function updateEntities(dt) {
             spawnDamageNumber(playerPos, dmg, true);
             flashHit();
             updatePlayerHud();
+            _entityAttackParticles(e.mesh.position, playerPos);
+            addCombatLine(`${(e.prompt || 'enemy').toLowerCase().slice(0, 22)} hits you for ${dmg}`, 'taken');
             if (player.hp <= 0) onPlayerDeath();
           }
         }
@@ -430,6 +590,25 @@ export function updateEntities(dt) {
       if (useTex && e.frontMat.map !== useTex) {
         e.frontMat.map = useTex;
         e.frontMat.needsUpdate = true;
+      }
+    }
+
+    // ── BOB (moving, no walk sheet) ───────────
+    if (moving && !sheet) {
+      e.mesh.position.y = e.floorY + Math.sin(now * 6.0 * (e.roam?.speed ?? 1)) * 0.055;
+    }
+
+    // ── FLINCH VISUAL ─────────────────────────
+    if (e.flinchUntil && now < e.flinchUntil) {
+      e.mesh.rotation.z = e.flinchRot ?? 0;
+      if (e.mesh.material && e.mesh.material.color) {
+        e.mesh.material.color.setHex(0xff3311);
+      }
+    } else if (e.flinchUntil) {
+      e.flinchUntil = 0;
+      e.mesh.rotation.z = 0;
+      if (e.mesh.material && e.mesh.material.color) {
+        e.mesh.material.color.setHex(0xffffff);
       }
     }
 

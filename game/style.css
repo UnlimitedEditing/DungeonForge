@@ -695,6 +695,93 @@ button:disabled { opacity: 0.4; cursor: wait; }
 }
 .library-codex-btn:hover { background: var(--amber); color: var(--bg-deep); }
 
+/* Pipeline section in Library */
+.lib-section {
+  border-top: 1px solid var(--rust);
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.lib-section-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: var(--amber-dim);
+  letter-spacing: 0.1em;
+}
+.lib-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: var(--amber-dim);
+  display: block;
+  margin-bottom: 4px;
+}
+.lib-label-hint {
+  color: var(--rust);
+  opacity: 0.8;
+  margin-left: 6px;
+}
+.lib-field { display: flex; flex-direction: column; }
+.lib-field-row { display: flex; gap: 12px; }
+.lib-select, .lib-input, .lib-textarea {
+  background: rgba(255,160,30,0.05);
+  border: 1px solid var(--rust);
+  color: var(--amber);
+  font-family: 'VT323', monospace;
+  font-size: 18px;
+  padding: 3px 6px;
+  outline: none;
+  width: 100%;
+}
+.lib-textarea { resize: vertical; line-height: 1.4; font-size: 16px; }
+.lib-select { cursor: pointer; background: #0a0800; }
+.lib-pipeline-footer {
+  justify-content: flex-end;
+  align-items: center;
+}
+.lib-status { font-family: 'VT323', monospace; font-size: 18px; color: var(--amber-dim); }
+.lib-status[data-state="idle"]   { color: transparent; }
+.lib-status[data-state="saving"] { color: var(--amber-dim); animation: blink 1s steps(2) infinite; }
+.lib-status[data-state="saved"]  { color: var(--ok); }
+.lib-status[data-state="error"]  { color: var(--blood); }
+.lib-btn {
+  background: none;
+  border: 1px solid var(--rust);
+  color: var(--amber-dim);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  padding: 6px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  letter-spacing: 0.05em;
+}
+.lib-btn:hover:not(:disabled) { color: var(--amber); border-color: var(--amber); }
+.lib-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* Spawn mode toggle */
+#spawn-mode-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.spawn-mode-btn {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--rust);
+  color: var(--amber-dim);
+  font-family: 'VT323', monospace;
+  font-size: 18px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 80ms;
+}
+.spawn-mode-btn.active {
+  background: rgba(255,120,20,0.15);
+  border-color: var(--amber-dim);
+  color: var(--amber);
+}
+.spawn-mode-btn:hover { border-color: var(--amber-dim); color: var(--amber); }
+
 /* ---------- Entities panel ---------- */
 #entities-panel {
   position: fixed;
@@ -1832,6 +1919,29 @@ button:disabled { opacity: 0.4; cursor: wait; }
 }
 .hub-sub-input:focus { border-color: var(--amber-dim); }
 
+.hub-sub-textarea {
+  background: rgba(255,160,30,0.05);
+  border: 1px solid var(--rust);
+  color: var(--amber);
+  font-family: 'VT323', monospace;
+  font-size: 18px;
+  padding: 4px 6px;
+  outline: none;
+  transition: border-color 80ms;
+  width: 100%;
+  resize: vertical;
+  line-height: 1.4;
+}
+.hub-sub-textarea:focus { border-color: var(--amber-dim); }
+
+.hub-sub-label-hint {
+  color: var(--amber-dim);
+  font-size: 9px;
+  font-family: 'VT323', monospace;
+  margin-left: 6px;
+  opacity: 0.7;
+}
+
 .hub-sub-select {
   background: #0a0800;
   border: 1px solid var(--rust);
@@ -2554,3 +2664,368 @@ button:disabled { opacity: 0.4; cursor: wait; }
   transition: background 80ms, color 80ms;
 }
 .btn-danger:hover { background: var(--blood); color: var(--bone); }
+
+/* ─── Prop Catalogue Panel ─────────────────────────────────────── */
+
+#prop-catalogue-panel {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 72;
+  width: min(1000px, 97vw);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms, transform 160ms;
+}
+#prop-catalogue-panel[data-open="true"] {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+#prop-catalogue-panel[data-open="false"] {
+  transform: translate(-50%, -48%) scale(0.97);
+}
+
+.prop-catalogue-frame {
+  max-height: 88vh;
+}
+
+.prop-catalogue-body {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  min-height: 0;
+  max-height: calc(88vh - 48px);
+}
+
+/* Left list */
+.prop-catalogue-list {
+  border-right: 1px solid var(--rust);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.prop-catalogue-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(180,60,10,0.3);
+  flex-shrink: 0;
+}
+.prop-catalogue-list-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: var(--amber-dim);
+}
+.prop-spawn-btn {
+  background: transparent;
+  border: 1px solid var(--rust);
+  color: var(--amber-dim);
+  font-family: 'VT323', monospace;
+  font-size: 16px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: all 80ms;
+}
+.prop-spawn-btn:hover { border-color: var(--amber-dim); color: var(--amber); }
+.prop-catalogue-list-body {
+  overflow-y: auto;
+  flex: 1;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.prop-catalogue-empty {
+  color: var(--amber-dim);
+  font-family: 'VT323', monospace;
+  font-size: 18px;
+  padding: 12px 8px;
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* Prop list card */
+.prop-list-card {
+  display: flex;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: border-color 80ms, background 80ms;
+}
+.prop-list-card:hover { border-color: var(--rust); background: rgba(255,120,20,0.04); }
+.prop-list-card.selected { border-color: var(--amber-dim); background: rgba(255,160,30,0.08); }
+.prop-list-thumb {
+  width: 48px;
+  height: 48px;
+  background: rgba(255,160,30,0.05);
+  border: 1px solid rgba(180,60,10,0.3);
+  flex-shrink: 0;
+  font-size: 20px;
+}
+.prop-list-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.prop-list-prompt {
+  font-family: 'VT323', monospace;
+  font-size: 16px;
+  color: var(--amber);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.prop-list-status { font-size: 13px; }
+
+/* Right detail pane */
+.prop-catalogue-detail {
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.prop-catalogue-detail-empty {
+  color: var(--amber-dim);
+  font-family: 'VT323', monospace;
+  font-size: 20px;
+  padding: 24px;
+  text-align: center;
+}
+.prop-detail-prompt {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: var(--amber-hot);
+  letter-spacing: 0.06em;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(180,60,10,0.3);
+}
+
+/* Shared control button (used by calib viewer) */
+.prop-ctrl-btn {
+  background: transparent;
+  border: 1px solid var(--rust);
+  color: var(--amber-dim);
+  font-family: 'VT323', monospace;
+  font-size: 16px;
+  padding: 1px 8px;
+  cursor: pointer;
+  transition: all 80ms;
+}
+.prop-ctrl-btn:hover { border-color: var(--amber-dim); color: var(--amber); }
+.prop-rotation-placeholder {
+  height: 80px;
+  border: 1px dashed var(--rust);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--amber-dim);
+  font-family: 'VT323', monospace;
+  font-size: 18px;
+}
+
+/* Detail sections */
+.prop-detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(180,60,10,0.25);
+}
+.prop-detail-section-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: var(--amber-dim);
+  letter-spacing: 0.1em;
+}
+.prop-detail-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: var(--amber-dim);
+  display: block;
+  margin-bottom: 3px;
+}
+.prop-detail-hint { color: var(--rust); opacity: 0.8; margin-left: 4px; font-family: 'VT323', monospace; font-size: 13px; }
+.prop-detail-field { display: flex; flex-direction: column; }
+.prop-detail-field-row { display: flex; gap: 12px; }
+.prop-detail-input, .prop-detail-textarea {
+  background: rgba(255,160,30,0.05);
+  border: 1px solid var(--rust);
+  color: var(--amber);
+  font-family: 'VT323', monospace;
+  font-size: 18px;
+  padding: 3px 6px;
+  outline: none;
+  width: 100%;
+}
+.prop-detail-textarea { resize: vertical; line-height: 1.4; }
+.prop-detail-input:focus, .prop-detail-textarea:focus { border-color: var(--amber-dim); }
+
+/* Calibration — compass rose + shuttle viewer */
+.prop-calib-hint {
+  font-family: 'VT323', monospace;
+  font-size: 15px;
+  color: var(--amber-dim);
+  margin-top: 4px;
+}
+.prop-calib-workspace {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.prop-calib-viewer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.prop-calib-strip {
+  height: 160px;
+  background-size: calc(var(--frame-count, 8) * 100%) 100%;
+  background-repeat: no-repeat;
+  background-color: rgba(0,0,0,0.4);
+  border: 1px solid var(--rust);
+  image-rendering: pixelated;
+}
+.prop-calib-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.prop-calib-frame-label {
+  font-family: 'VT323', monospace;
+  font-size: 18px;
+  color: var(--amber-dim);
+  flex: 1;
+  text-align: center;
+}
+/* Compass rose */
+.prop-calib-compass {
+  display: grid;
+  grid-template-columns: repeat(3, 44px);
+  grid-template-rows: repeat(3, 44px);
+  gap: 3px;
+  flex-shrink: 0;
+}
+.calib-dir-btn {
+  background: rgba(180,60,10,0.08);
+  border: 1px solid var(--rust);
+  color: var(--amber-dim);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0;
+  transition: all 80ms;
+}
+.calib-dir-btn:hover {
+  background: rgba(180,80,10,0.22);
+  border-color: var(--amber-dim);
+  color: var(--amber);
+}
+.calib-dir-btn.this-frame {
+  background: rgba(255,160,30,0.20);
+  border-color: var(--amber);
+  color: var(--amber);
+  box-shadow: 0 0 6px rgba(255,160,30,0.35);
+}
+.calib-dir-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  line-height: 1;
+}
+.calib-dir-badge {
+  font-family: 'VT323', monospace;
+  font-size: 14px;
+  color: var(--amber-dim);
+  line-height: 1;
+}
+.calib-dir-btn.this-frame .calib-dir-badge { color: var(--amber); }
+.calib-compass-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--rust);
+  font-size: 16px;
+  opacity: 0.4;
+}
+/* Filmstrip */
+.prop-calib-filmstrip {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 4px 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--rust) transparent;
+}
+.calib-film-frame {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0.55;
+  transition: opacity 80ms;
+}
+.calib-film-frame:hover { opacity: 0.85; }
+.calib-film-frame.active { opacity: 1; }
+.calib-film-thumb {
+  width: 52px;
+  height: 64px;
+  background-size: calc(var(--fc, 8) * 100%) 100%;
+  background-repeat: no-repeat;
+  background-color: rgba(0,0,0,0.35);
+  border: 1px solid var(--rust);
+  image-rendering: pixelated;
+}
+.calib-film-frame.active .calib-film-thumb { border-color: var(--amber); }
+.calib-film-dirs {
+  font-family: 'VT323', monospace;
+  font-size: 13px;
+  color: var(--amber-dim);
+  text-align: center;
+  max-width: 52px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.calib-film-frame.active .calib-film-dirs { color: var(--amber); }
+
+/* Action buttons */
+.prop-action-btn {
+  background: transparent;
+  border: 1px solid var(--rust);
+  color: var(--amber-dim);
+  font-family: 'VT323', monospace;
+  font-size: 18px;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: all 80ms;
+  align-self: flex-start;
+}
+.prop-action-btn:hover { border-color: var(--amber-dim); color: var(--amber); }
+.prop-save-btn { align-self: flex-end; font-size: 20px; padding: 5px 18px; }
+
+/* Footer */
+.prop-detail-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(180,60,10,0.25);
+  margin-top: auto;
+}
+.prop-save-status {
+  font-family: 'VT323', monospace;
+  font-size: 18px;
+  color: var(--amber-dim);
+}

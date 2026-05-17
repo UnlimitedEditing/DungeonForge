@@ -51,7 +51,7 @@ import {
 import {
   spawnFromPrompt, updateEntities, pulsePlaceholders,
   loadJobHistory, loadWalkSheet, renderEntities,
-  setTermStatus,
+  setTermStatus, propColliders,
 } from './entity.js';
 import {
   openLibraryPanel, closeLibraryPanel,
@@ -63,6 +63,7 @@ import {
   openPickerPanel, closePickerPanel,
   openTerraPanel, closeTerraPanel,
   openUndercroftPanel, closeUndercroftPanel,
+  openPropCataloguePanel, closePropCataloguePanel,
   syncPickerExperience, setLaunchExperience,
 } from './hub-panels.js';
 
@@ -556,6 +557,13 @@ document.getElementById('hub-terra-card').addEventListener('click', () => {
     openTerraPanel();
   }
 });
+document.getElementById('hub-prop-catalogue-card').addEventListener('click', openPropCataloguePanel);
+
+document.addEventListener('open-terminal-prop-mode', () => {
+  _spawnMode = 'prop';
+  document.getElementById('spawn-mode-prop').classList.add('active');
+  document.getElementById('spawn-mode-entity').classList.remove('active');
+});
 
 // ─────────────────────────────────────────────
 // CONTROLS  (room only)
@@ -581,8 +589,13 @@ const PITCH_LIMIT  = Math.PI * 0.44; // ±~79° — keeps clear of gimbal lock
 
 document.addEventListener('mousemove', (e) => {
   if (!controls.isLocked) return;
-  _yaw   -= e.movementX * LOOK_SPEED;
-  _pitch -= e.movementY * LOOK_SPEED;
+  // Clamp per-frame delta — browsers can spike movementX to thousands of pixels
+  // when the physical cursor reaches the display edge, causing a camera jump.
+  const MAX_DELTA = 80;
+  const dx = Math.max(-MAX_DELTA, Math.min(MAX_DELTA, e.movementX));
+  const dy = Math.max(-MAX_DELTA, Math.min(MAX_DELTA, e.movementY));
+  _yaw   -= dx * LOOK_SPEED;
+  _pitch -= dy * LOOK_SPEED;
   _pitch  = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, _pitch));
   roomCamera.quaternion.setFromEuler(new THREE.Euler(_pitch, _yaw, 0, 'YXZ'));
 });
@@ -602,6 +615,10 @@ window.addEventListener('keydown', (e) => {
     if (inventoryPanelEl.dataset.open === 'true') { closeInventory(); return; }
     returnToForge();
   }
+  // Don't steal keypresses from focused text inputs (e.g. spawn prompt, config fields)
+  const _focused = document.activeElement?.tagName;
+  if (_focused === 'INPUT' || _focused === 'TEXTAREA') return;
+
   if (e.code === 'KeyQ' && appMode === 'room') {
     e.preventDefault();
     meleeAttack();
@@ -652,6 +669,20 @@ function updateMovement(dt) {
     // If both axes blocked, restore both (corner case)
     if (!isWalkable(p.x, p.z, currentLevel)) { p.x = prevX; p.z = prevZ; }
     velocity.x *= 0.1; velocity.z *= 0.1;
+  }
+
+  // Prop collision — push player out of prop collider radius
+  for (const e of propColliders) {
+    if (!e.mesh || e.aiState === 'destroyed') continue;
+    const px = p.x - e.mesh.position.x;
+    const pz = p.z - e.mesh.position.z;
+    const dist = Math.sqrt(px * px + pz * pz);
+    const r = e.colliderRadius ?? 0.5;
+    if (dist < r && dist > 0.001) {
+      const push = (r - dist) / dist;
+      p.x += px * push;
+      p.z += pz * push;
+    }
   }
 
   p.y = PLAYER_EYE;
@@ -816,8 +847,22 @@ cfgSaveBtn.addEventListener('click', saveConfig);
 // SPAWN TERMINAL WIRING
 // ─────────────────────────────────────────────
 
+let _spawnMode = 'entity';  // 'entity' | 'prop'
+
 const spawnInput = document.getElementById('spawn-input');
 const spawnBtn   = document.getElementById('spawn-btn');
+
+// Mode toggle buttons
+document.getElementById('spawn-mode-entity').addEventListener('click', () => {
+  _spawnMode = 'entity';
+  document.getElementById('spawn-mode-entity').classList.add('active');
+  document.getElementById('spawn-mode-prop').classList.remove('active');
+});
+document.getElementById('spawn-mode-prop').addEventListener('click', () => {
+  _spawnMode = 'prop';
+  document.getElementById('spawn-mode-prop').classList.add('active');
+  document.getElementById('spawn-mode-entity').classList.remove('active');
+});
 
 // Back to Forge button in terminal header
 const backToForgeBtn = document.getElementById('back-to-forge-btn');
@@ -826,7 +871,7 @@ if (backToForgeBtn) backToForgeBtn.addEventListener('click', returnToForge);
 function doSpawn() {
   const v = spawnInput.value.trim();
   if (!v) return;
-  spawnFromPrompt(v);
+  spawnFromPrompt(v, _spawnMode);
   spawnInput.value = ''; spawnInput.focus();
 }
 spawnBtn.addEventListener('click', doSpawn);

@@ -21,6 +21,7 @@ import {
   escapeHtml, addCombatLine,
 } from './hud.js';
 import { icon } from './icons.js';
+import { propColliders } from './entity.js';
 
 const FORGE_BASE   = window.location.origin;
 const PICKUP_RANGE = 1.2;
@@ -174,7 +175,7 @@ export function meleeAttack() {
 
   for (const e of sprites.values()) {
     if (e.status !== 'done' || !e.mesh || e.mesh.userData.isPlaceholder) continue;
-    if (e.aiState === 'dead' || !e.stats) continue;
+    if (e.aiState === 'dead' || e.aiState === 'destroyed' || !e.stats) continue;
     const d = playerPos.distanceTo(e.mesh.position);
     if (d < nearestDist) { nearest = e; nearestDist = d; }
   }
@@ -183,12 +184,9 @@ export function meleeAttack() {
 
   const atk  = player.attack + getEquipBonus('attack');
   const dmg  = Math.max(1, atk - nearest.stats.defense + Math.floor(Math.random() * 7 - 3));
-  nearest.stats.hp = Math.max(0, nearest.stats.hp - dmg);
-  spawnDamageNumber(nearest.mesh.position, dmg, false);
-  refreshEntityHpBar(nearest);
   _strikeFlash(nearest.mesh.position);
   addCombatLine(`you strike ${(nearest.prompt || 'enemy').toLowerCase().slice(0, 24)} for ${dmg}`, 'dealt');
-  if (nearest.stats.hp <= 0) killEntity(nearest);
+  damageEntity(nearest, dmg);
 }
 
 export function killEntity(entry) {
@@ -229,6 +227,40 @@ export function killEntity(entry) {
     pos.y = 0;
     spawnItemDrop(pos, entry.stats?.level ?? 1);
   }
+}
+
+function destroyProp(entry) {
+  entry.aiState = 'destroyed';
+  propColliders.delete(entry);
+  // Particle burst
+  const pos = entry.mesh.position.clone();
+  _strikeFlash(pos);  // reuse strike flash for visual feedback
+  // Fade out mesh
+  entry.mesh.material.transparent = true;
+  const t0 = performance.now();
+  (function fade() {
+    const p = (performance.now() - t0) / 600;
+    if (p >= 1) { roomScene.remove(entry.mesh); return; }
+    entry.mesh.material.opacity = 1 - p;
+    requestAnimationFrame(fade);
+  })();
+  if (entry.hpBar) { roomScene.remove(entry.hpBar); entry.hpBar = null; }
+  if (entry.shadowBlob) { roomScene.remove(entry.shadowBlob); entry.shadowBlob = null; }
+  addCombatLine(`${(entry.prompt || 'prop').slice(0, 24)} destroyed`, 'lore');
+}
+
+export function damageEntity(entry, dmg) {
+  if (!entry.stats || entry.aiState === 'destroyed' || entry.aiState === 'dead') return;
+  entry.stats.hp = Math.max(0, entry.stats.hp - dmg);
+  if (entry.jobType === 'prop') {
+    if (entry.stats.hp <= 0) destroyProp(entry);
+    return;
+  }
+  entry.flinchUntil = performance.now() / 1000 + 0.18;
+  entry.flinchRot   = (Math.random() - 0.5) * 0.3;
+  spawnDamageNumber(entry.mesh.position, dmg, false);
+  refreshEntityHpBar(entry);
+  if (entry.stats.hp <= 0) killEntity(entry);
 }
 
 export function onPlayerDeath() {
@@ -686,17 +718,14 @@ export function updateProjectiles(dt) {
 
     // Entity collision (sphere test, radius 0.55)
     for (const e of sprites.values()) {
-      if (!e.mesh || e.aiState === 'dead' || !e.stats) continue;
+      if (!e.mesh || e.aiState === 'dead' || e.aiState === 'destroyed' || !e.stats) continue;
       if (e.mesh.userData.isPlaceholder) continue;
       if (p.mesh.position.distanceTo(e.mesh.position) < 0.55) {
         const def = e.stats.defense ?? 0;
         const dmg = Math.max(1, PROJ_DAMAGE + (player.attack >> 1) - def + Math.floor(Math.random() * 5));
-        e.stats.hp = Math.max(0, e.stats.hp - dmg);
-        spawnDamageNumber(e.mesh.position, dmg, false);
-        refreshEntityHpBar(e);
         addCombatLine(`bolt hits ${(e.prompt || 'enemy').toLowerCase().slice(0, 22)} for ${dmg}`, 'dealt');
         _projImpact(p.mesh.position.clone(), true);
-        if (e.stats.hp <= 0) killEntity(e);
+        damageEntity(e, dmg);
         remove = true;
         break;
       }
