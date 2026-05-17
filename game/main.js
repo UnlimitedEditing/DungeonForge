@@ -133,13 +133,15 @@ function applyExperienceRules(exp) {
 }
 
 // Level geometry state (local to main.js — not shared state)
-let levelGroup  = null;   // THREE.Group of level geometry (added to roomScene)
-let levelLights = [];     // PointLights added to roomScene for the level
+let levelGroup   = null;   // THREE.Group of level geometry (added to roomScene)
+let levelWallMap = null;   // Map<"tileX,tileY:dir", {mesh,tileX,tileY,dir}> for wall interactions
+let levelLights  = [];     // PointLights added to roomScene for the level
 let levelEndPos = null;   // {x,z} world position of the exit pillar
 
 function _buildLevel(exp) {
   // Tear down previous level geometry and lights
   if (levelGroup) { roomScene.remove(levelGroup); levelGroup = null; }
+  levelWallMap = null;
   levelLights.forEach(l => roomScene.remove(l));
   levelLights = [];
 
@@ -149,7 +151,7 @@ function _buildLevel(exp) {
   const gridSize  = lvlCfg.gridSize   ?? 12;
 
   setCurrentLevel(generateLevel(seed, roomCount, gridSize));
-  levelGroup    = buildLevelGeometry(currentLevel);
+  ({ group: levelGroup, wallMap: levelWallMap } = buildLevelGeometry(currentLevel));
   levelEndPos   = levelGroup.userData.endWorldPos ?? null;
   levelLights   = buildLevelLights(currentLevel);
 
