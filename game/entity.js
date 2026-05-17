@@ -7,6 +7,7 @@ import {
   sprites, currentLevel, profileId,
   liveAgroRange, liveAttackRange, liveEntityAttackCd,
   player,
+  spriteCache, setBossEntityId,
 } from './state.js';
 import { renderer, roomScene, roomCamera, brazier, controls } from './scene.js';
 import {
@@ -203,7 +204,7 @@ export function initPropStats(entry, hp) {
 let _termStatus = null;
 export function setTermStatus(el) { _termStatus = el; }
 
-export async function spawnFromPrompt(promptText, jobType = 'entity') {
+export async function spawnFromPrompt(promptText, jobType = 'entity', options = {}) {
   if (!promptText || !profileId) return;
   let job;
   try {
@@ -213,6 +214,7 @@ export async function spawnFromPrompt(promptText, jobType = 'entity') {
       prompt_modifier: getActivePromptModifier() || undefined,
       stat_tier:       getStatTier(promptText),
       job_type:        jobType,   // explicit, overrides server config
+      is_boss:         options.isBoss ?? false,
     };
     const res = await fetch(`${FORGE_BASE}/jobs`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -226,11 +228,50 @@ export async function spawnFromPrompt(promptText, jobType = 'entity') {
     return;
   }
 
-  const position    = nextSpawn();
+  const position    = options.position ?? nextSpawn();
   const placeholder = makePlaceholder(position);
-  sprites.set(job.id, { jobId: job.id, status: job.status, mesh: placeholder, position, prompt: promptText, floorY: 1.1, roam: null });
+  sprites.set(job.id, { jobId: job.id, status: job.status, mesh: placeholder, position, prompt: promptText, floorY: 1.1, roam: null, isBoss: options.isBoss ?? false, tier: options.tier ?? 1 });
+  if (options.isBoss) setBossEntityId(job.id);
   refreshJobList();
   pollJob(job.id);
+  return job.id;
+}
+
+export function spawnFromExistingSprite(description, options = {}) {
+  const cached = spriteCache.get(description);
+  if (!cached) { console.warn('[entity] no cached sprite for:', description); return null; }
+
+  const { isBoss = false, tier = 1, position: targetPosition } = options;
+  const position = targetPosition ?? nextSpawn();
+  const fakeId   = `reuse_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+
+  const stats = cached.stats ? { ...cached.stats, hp: cached.stats.maxHp } : null;
+  const placeholder = makePlaceholder(position);
+
+  const entry = {
+    jobId: fakeId, status: 'loading', mesh: placeholder,
+    position, prompt: description, floorY: 1.1, roam: null,
+    isBoss, tier, stats, aiState: stats ? 'roam' : null, lastAttackTime: 0,
+  };
+  sprites.set(fakeId, entry);
+  if (isBoss) setBossEntityId(fakeId);
+  refreshJobList();
+
+  makeSprite(cached.spriteName, position, (sprite, floorY, tex, src) => {
+    const e = sprites.get(fakeId);
+    if (!e) return;
+    roomScene.remove(placeholder);
+    placeholder.material?.dispose(); placeholder.geometry?.dispose();
+    roomScene.add(sprite);
+    e.mesh = sprite; e.floorY = floorY; e.roam = initRoam();
+    e.frontTex = tex; e.frontAspect = tex.image.width / tex.image.height;
+    e.frontMat = sprite.material; e.spriteSrc = src;
+    e.shadowBlob = createShadowBlob(); e.status = 'done';
+    if (e.stats) { e.hpBar = createEntityHpBar(); refreshEntityHpBar(e); }
+    refreshJobList();
+  });
+
+  return fakeId;
 }
 
 export async function pollJob(jobId) {
@@ -281,6 +322,10 @@ export async function pollJob(jobId) {
           };
           entry.aiState        = 'roam';
           entry.lastAttackTime = 0;
+          spriteCache.set(entry.prompt, {
+            spriteName: job.sprite_name,
+            stats: { ...entry.stats },
+          });
         }
         makeSprite(job.sprite_name, entry.position, (sprite, floorY, tex, src) => {
           roomScene.remove(entry.mesh);

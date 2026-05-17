@@ -182,6 +182,7 @@ class JobRequest(BaseModel):
     prompt_modifier: Optional[str] = None   # active scaffold modifier from lore-engine
     stat_tier: Optional[float] = None       # 0.0-1.0 from scaffold archetype; None = roll random
     job_type: Optional[str] = None          # 'entity' | 'prop'; if None falls back to spawn_pipeline config
+    is_boss: bool = False
 
 class VariantRequest(BaseModel):
     profile_id: str
@@ -216,6 +217,7 @@ class Job(BaseModel):
     created_at: float
     finished_at: Optional[float] = None
     job_type: str = "entity"           # "entity" | "item"
+    is_boss: bool = False
     entity_stats: Optional[dict] = None   # combat stats, rolled for entity jobs
     item_meta: Optional[dict] = None      # {name, type, subtype, rarity, stats} for item jobs
 
@@ -793,6 +795,11 @@ def create_job(req: JobRequest):
     else:
         full_prompt  = build_sprite_prompt(prompt, req.prompt_modifier or "")
         entity_stats = roll_entity_stats(stat_tier)
+    if req.is_boss and entity_stats:
+        mult = float(config.get("boss_hp_multiplier") or 3.0)
+        entity_stats["hp"]        = int(entity_stats["hp"] * mult)
+        entity_stats["max_hp"]    = entity_stats["hp"]
+        entity_stats["xp_reward"] = entity_stats["xp_reward"] * 5
     job = Job(
         id=job_id,
         profile_id=req.profile_id,
@@ -801,6 +808,7 @@ def create_job(req: JobRequest):
         status="queued",
         created_at=time.time(),
         job_type=job_type,
+        is_boss=req.is_boss,
         entity_stats=entity_stats,
     )
     with JOBS_LOCK:
@@ -1343,6 +1351,94 @@ def generate_scaffold(exp_id: str, request: Request):
     SCAFFOLD_QUEUE.put(exp_id)
     log.info("[scaffold:%s] queued by %s", exp_id, profile_id)
     return {"status": "queued", "experience_id": exp_id}
+
+# -- dungeon themes --
+
+_THEMES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_themes.json")
+_THEMES_LOCK = threading.Lock()
+
+def _load_themes() -> dict:
+    try:
+        with open(_THEMES_PATH) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+def _save_themes(themes: dict) -> None:
+    with open(_THEMES_PATH, "w") as f:
+        json.dump(themes, f, indent=2)
+
+
+class DungeonThemeRequest(BaseModel):
+    seed: int
+    experience_id: str
+
+
+@app.post("/dungeon-theme")
+def get_dungeon_theme(req: DungeonThemeRequest, request: Request):
+    profile_id = request.headers.get("X-Profile-Id", "")
+    api_key = profiles.get_api_key(profile_id)
+    if not api_key:
+        raise HTTPException(401, "session expired — please log in again")
+
+    cache_key = f"{req.experience_id}:{req.seed}"
+    with _THEMES_LOCK:
+        themes = _load_themes()
+        if cache_key in themes:
+            return themes[cache_key]
+
+    # Load experience lore + scaffold for context
+    exps = config.get("experiences") or []
+    exp  = next((e for e in exps if e["id"] == req.experience_id), None)
+    if not exp:
+        raise HTTPException(404, "experience not found")
+
+    with _SCAFFOLD_LOCK:
+        scaffolds = _load_scaffolds()
+    scaffold = scaffolds.get(req.experience_id, {})
+
+    lore   = exp.get("lore", {})
+    archetype_names = [a.get("name", "") for a in scaffold.get("archetypes", [])]
+
+    user_prompt = (
+        f"World: {lore.get('title', 'Unknown World')}\n"
+        f"Description: {lore.get('description', '')}\n"
+        f"Tone: {scaffold.get('toneVocabulary', '')}\n"
+        f"Known creature archetypes: {', '.join(archetype_names) or 'none'}\n"
+        f"Dungeon seed: {req.seed}\n"
+        "Generate one themed dungeon for this world."
+    )
+
+    system_prompt = config.get("dungeon_theme_system_prompt")
+    persona       = config.get("dungeon_theme_persona") or "Polly"
+
+    try:
+        raw = graydient_client.llm_query(user_prompt, system_prompt, api_key, persona)
+        try:
+            theme = json.loads(raw)
+        except json.JSONDecodeError:
+            import re as _re
+            match = _re.search(r'\{.*\}', raw, _re.DOTALL)
+            if match:
+                theme = json.loads(match.group())
+            else:
+                raise ValueError(f"LLM returned non-JSON: {raw[:200]}")
+    except Exception as exc:
+        log.exception("[dungeon-theme] LLM failed for seed=%s exp=%s", req.seed, req.experience_id)
+        raise HTTPException(500, f"theme generation failed: {exc}")
+
+    theme["seed"]         = req.seed
+    theme["experienceId"] = req.experience_id
+    theme["generatedAt"]  = int(time.time())
+
+    with _THEMES_LOCK:
+        themes = _load_themes()
+        themes[cache_key] = theme
+        _save_themes(themes)
+
+    log.info("[dungeon-theme] generated for seed=%s exp=%s: %s", req.seed, req.experience_id, theme.get("dungeonName"))
+    return theme
+
 
 # -- static assets --
 

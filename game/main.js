@@ -53,6 +53,7 @@ import {
   loadJobHistory, loadWalkSheet, renderEntities,
   setTermStatus, propColliders,
 } from './entity.js';
+import { initSpawnManager, setSpawnDensity } from './spawn-manager.js';
 import {
   openLibraryPanel, closeLibraryPanel,
   openEntities, closeEntities,
@@ -1023,4 +1024,5 @@ async function applyIcons() {
 
 applyIcons();
 initActionBar();
+initSpawnManager();
 initProfile();

@@ -28,6 +28,7 @@ import {
   checkTriggers as checkScaffoldTriggers,
 } from './lore-engine.js';
 import { off, on } from './events.js';
+import { setSpawnDensity } from './spawn-manager.js';
 import { snapshot as snapshotState } from './world-state.js';
 import { getLoadedTriggers } from './triggers.js';
 import {
@@ -665,6 +666,7 @@ async function loadMachinariumConfig() {
     document.getElementById('mac-level-min').value   = cfg.entity_level_min   ?? 1;
     document.getElementById('mac-level-max').value   = cfg.entity_level_max   ?? 5;
     document.getElementById('mac-drop-chance').value = Math.round((cfg.drop_chance ?? 0.30) * 100);
+    document.getElementById('mac-spawn-density').value = cfg.spawn_density ?? 0.4;
   } catch (_) {}
 }
 
@@ -685,6 +687,7 @@ async function saveMachinariumConfig() {
     cfg.entity_level_min = parseInt(document.getElementById('mac-level-min').value);
     cfg.entity_level_max = parseInt(document.getElementById('mac-level-max').value);
     cfg.drop_chance      = parseInt(document.getElementById('mac-drop-chance').value) / 100;
+    cfg.spawn_density    = parseFloat(document.getElementById('mac-spawn-density').value);
     const res = await fetch(`${FORGE_BASE}/config`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(cfg),
@@ -697,6 +700,7 @@ async function saveMachinariumConfig() {
     setLiveEntityAttackCd(cfg.entity_attack_cd);
     setLivePlayerAttackCd(cfg.player_attack_cd);
     setLiveDropChance(cfg.drop_chance);
+    setSpawnDensity(cfg.spawn_density);
     setStatus(statusEl, 'saved', 'inscribed');
     setTimeout(() => { statusEl.dataset.state = 'idle'; }, 2500);
   } catch (e) { setStatus(statusEl, 'error', e.message); }

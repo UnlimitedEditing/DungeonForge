@@ -62,6 +62,10 @@ export function setActiveExperience(v) { activeExperience = v; }
 export function setCurrentLevel(v)     { currentLevel = v; }
 export function setLevelComplete(v)    { levelComplete = v; }
 
+export const spriteCache = new Map();  // description → {spriteName, stats, variants}
+export let bossEntityId = null;
+export function setBossEntityId(v) { bossEntityId = v; }
+
 // ─────────────────────────────────────────────
 // PROFILE STATE
 // ─────────────────────────────────────────────

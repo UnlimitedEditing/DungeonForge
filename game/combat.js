@@ -22,6 +22,7 @@ import {
 } from './hud.js';
 import { icon } from './icons.js';
 import { propColliders } from './entity.js';
+import { emit, EVENTS } from './events.js';
 
 const FORGE_BASE   = window.location.origin;
 const PICKUP_RANGE = 1.2;
@@ -221,8 +222,12 @@ export function killEntity(entry) {
   addCombatLine(`${(entry.prompt || 'enemy').toLowerCase().slice(0, 24)} falls`, 'lore');
   gainXp(entry.stats?.xpReward ?? 0);
 
+  if (entry.isBoss) {
+    emit(EVENTS.BOSS_DIED, { entityId: entry.jobId, prompt: entry.prompt });
+  }
+
   // configurable drop chance
-  if (entry.mesh && Math.random() < liveDropChance) {
+  if (entry.mesh && (entry.isBoss || Math.random() < liveDropChance)) {
     const pos = entry.mesh.position.clone();
     pos.y = 0;
     spawnItemDrop(pos, entry.stats?.level ?? 1);
