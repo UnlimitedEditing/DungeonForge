@@ -23,6 +23,7 @@ import {
 import { icon } from './icons.js';
 import { propColliders } from './entity.js';
 import { emit, EVENTS } from './events.js';
+import { triggerWeaponAttack } from './weapon.js';
 
 const FORGE_BASE   = window.location.origin;
 const PICKUP_RANGE = 1.2;
@@ -169,7 +170,8 @@ export function meleeAttack() {
   if (now - lastPlayerAttack < livePlayerAttackCd) return;
   setLastPlayerAttack(now);
 
-  _swingArc();   // always show the swing visual
+  _swingArc();           // 3D arc in scene
+  triggerWeaponAttack(); // 2D weapon HUD animation
 
   const playerPos = roomCamera.position;
   let nearest = null, nearestDist = liveMeleeRange;

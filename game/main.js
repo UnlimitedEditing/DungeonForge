@@ -54,6 +54,7 @@ import {
   setTermStatus, propColliders,
 } from './entity.js';
 import { initSpawnManager, setSpawnDensity } from './spawn-manager.js';
+import { initWeapon, setWeaponType, hideWeapon, showWeapon } from './weapon.js';
 import {
   openLibraryPanel, closeLibraryPanel,
   openEntities, closeEntities,
@@ -108,6 +109,7 @@ async function launchExperience(exp) {
   setAppMode('room');
   closePickerPanel();
   hideForgeHub();
+  showWeapon();
   closeLibraryPanel();
   terminal.dataset.open = 'true';
   crosshair.dataset.visible = 'false';
@@ -191,6 +193,7 @@ function _spawnLevelEntities(exp) {
 
 function returnToForge() {
   setAppMode('forge');
+  hideWeapon();
   if (controls.isLocked) controls.unlock();
   unloadTriggers();
   resetWorldState();
@@ -1025,4 +1028,5 @@ async function applyIcons() {
 applyIcons();
 initActionBar();
 initSpawnManager();
+initWeapon();
 initProfile();

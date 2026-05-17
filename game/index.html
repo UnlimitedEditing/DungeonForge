@@ -476,6 +476,13 @@
     <div id="combat-feed-lines"></div>
   </div>
 
+  <!-- Weapon HUD: 2D overlay sprite, bottom-right. Animated on attack. -->
+  <div id="weapon-hud" data-visible="false" data-placeholder="false">
+    <img id="weapon-img" alt="" draggable="false" />
+    <!-- Placeholder shape shown when no sprite is rendered yet -->
+    <div class="weapon-placeholder"></div>
+  </div>
+
   <!-- Stats HUD: HP, XP, level — bottom-left, above the bezel. -->
   <div id="stats-hud" data-visible="false">
     <div class="stats-name-row">
@@ -810,6 +817,33 @@
             <button id="sub-forge-btn" class="hub-sub-action-btn">FORGE ITEM</button>
           </div>
           <div id="sub-forge-status" class="hub-sub-status" data-state="idle"></div>
+        </div>
+
+        <!-- Weapon types section -->
+        <div class="hub-sub-section">
+          <div class="hub-sub-section-label">// weapon types <span class="muted" style="font-size:0.7em">— reference images + render variants</span></div>
+
+          <!-- Weapon type list -->
+          <div id="weapon-type-list" class="weapon-type-list"></div>
+
+          <!-- Add weapon type form -->
+          <div class="weapon-type-add-form">
+            <div class="weapon-type-add-row">
+              <input id="wt-new-name" type="text" class="hub-sub-input" placeholder="name, e.g. Iron Sword" style="flex:2" spellcheck="false" />
+              <select id="wt-new-attack-type" class="hub-sub-select">
+                <option value="slash">slash</option>
+                <option value="stab">stab</option>
+                <option value="ranged">ranged</option>
+              </select>
+            </div>
+            <div class="weapon-type-add-row" style="gap:6px;margin-top:4px">
+              <input id="wt-new-dmg"   type="number" class="hub-sub-input hub-sub-input-sm" placeholder="dmg" min="1" style="width:60px" />
+              <input id="wt-new-spd"   type="number" class="hub-sub-input hub-sub-input-sm" placeholder="spd" min="1" style="width:60px" />
+              <input id="wt-new-range" type="number" class="hub-sub-input hub-sub-input-sm" placeholder="range" min="1" style="width:64px" />
+              <button id="wt-add-btn" class="hub-sub-action-btn" style="margin-left:auto">+ ADD</button>
+            </div>
+          </div>
+          <div id="wt-add-status" class="hub-sub-status" data-state="idle"></div>
         </div>
 
       </div>
