@@ -557,8 +557,6 @@ document.getElementById('hub-terra-card').addEventListener('click', () => {
     openTerraPanel();
   }
 });
-document.getElementById('hub-prop-catalogue-card').addEventListener('click', openPropCataloguePanel);
-
 document.addEventListener('open-terminal-prop-mode', () => {
   _spawnMode = 'prop';
   document.getElementById('spawn-mode-prop').classList.add('active');

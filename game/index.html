@@ -134,7 +134,7 @@
           <div class="hub-room-card" id="hub-substance-card">
             <div class="hub-room-sigil">⚗</div>
             <div class="hub-room-name">SUBSTANCE LAB</div>
-            <div class="hub-room-tagline">Craft equipment, items, and inanimate content.</div>
+            <div class="hub-room-tagline">Craft equipment, items, and world props. Manage drop pools, item forge, and Prop Catalogue.</div>
           </div>
           <div class="hub-room-card" id="hub-terra-card">
             <div class="hub-room-sigil">◇</div>
@@ -145,11 +145,6 @@
             <div class="hub-room-sigil">⛏</div>
             <div class="hub-room-name">THE UNDERCROFT</div>
             <div class="hub-room-tagline">Event bus · State registry · Trigger manifest.</div>
-          </div>
-          <div class="hub-room-card" id="hub-prop-catalogue-card">
-            <div class="hub-room-sigil">⬡</div>
-            <div class="hub-room-name">PROP CATALOGUE</div>
-            <div class="hub-room-tagline">Browse, configure and calibrate world props. Assign area affinities and destructibility.</div>
           </div>
           <div class="hub-room-card hub-room-sealed">
             <div class="hub-room-sigil">⊕</div>
@@ -337,19 +332,40 @@
             </select>
           </div>
 
+          <div class="lib-field-row">
+            <div class="lib-field">
+              <label class="lib-label">Prop render workflow</label>
+              <input id="lib-prop-workflow" type="text" class="lib-input" placeholder="qwen" />
+            </div>
+            <div class="lib-field">
+              <label class="lib-label">Rotation frames (4/8/16)</label>
+              <input id="lib-prop-frames" type="number" min="4" max="16" step="4" class="lib-input" />
+            </div>
+          </div>
+
           <div class="lib-field">
             <label class="lib-label">Prop prompt template <span class="lib-label-hint">{user_prompt}</span></label>
             <textarea id="lib-prop-template" class="lib-textarea" rows="3"></textarea>
           </div>
 
+          <div class="lib-field">
+            <label class="lib-label">Rotation prompt <span class="lib-label-hint">inline /fps /length LoRAs supported</span></label>
+            <textarea id="lib-rotation-prompt" class="lib-textarea" rows="3"></textarea>
+          </div>
+
+          <div class="lib-field">
+            <label class="lib-label">Rotation options <span class="lib-label-hint">appended to /run: — e.g. /size:640x640</span></label>
+            <input id="lib-rotation-options" type="text" class="lib-input" placeholder="/size:640x640" />
+          </div>
+
           <div class="lib-field-row">
             <div class="lib-field">
-              <label class="lib-label">Luma threshold (180–255)</label>
+              <label class="lib-label">Mask brightness (0–255) <span class="lib-label-hint">lower = more aggressive</span></label>
               <input id="lib-luma-threshold" type="number" min="180" max="255" step="1" class="lib-input" />
             </div>
             <div class="lib-field">
-              <label class="lib-label">Rotation frames (4/8/16)</label>
-              <input id="lib-prop-frames" type="number" min="4" max="16" step="4" class="lib-input" />
+              <label class="lib-label">Mask saturation (0–1) <span class="lib-label-hint">raise to catch off-white</span></label>
+              <input id="lib-luma-sat" type="number" min="0" max="1" step="0.01" class="lib-input" />
             </div>
           </div>
 
@@ -742,7 +758,10 @@
     <div class="hub-sub-frame hub-sub-frame-wide">
       <div class="hub-sub-header">
         <span class="hub-sub-title">// SUBSTANCE LABORATORY</span>
-        <button class="hub-sub-close-btn" id="substance-close-btn">✕ CLOSE</button>
+        <div class="hub-sub-header-actions">
+          <button class="hub-sub-nav-btn" id="substance-prop-catalogue-btn">⬡ PROP CATALOGUE →</button>
+          <button class="hub-sub-close-btn" id="substance-close-btn">✕ CLOSE</button>
+        </div>
       </div>
       <div class="hub-sub-body">
 

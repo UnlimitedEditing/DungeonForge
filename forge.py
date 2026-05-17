@@ -365,7 +365,10 @@ def render_one(job: Job, api_key: str) -> str:
             collected["url"] = graydient_client.extract_image_url(info)
             log.info("[%s] sprite done, url=%s", job.id, collected["url"])
 
-    workflow = config.get("workflow")
+    if job.job_type == "prop":
+        workflow = config.get("prop_workflow") or config.get("workflow")
+    else:
+        workflow = config.get("workflow")
     log.info("[%s] submitting sprite (workflow=%s)", job.id, workflow)
     graydient_client.render_create(
         prompt=job.full_prompt,
@@ -386,14 +389,20 @@ def process_sprite(raw_bytes: bytes, out_path: str) -> None:
         cleaned = cleaned.crop(bbox)
     cleaned.save(out_path, "PNG")
 
-def process_prop(raw_bytes: bytes, out_path: str, luma_threshold: int = 240) -> None:
-    """Luminance-mask a white-background prop render.
-    Pixels whose luminance exceeds luma_threshold become transparent.
-    Avoids rembg which performs poorly on hard-edged objects."""
-    raw = Image.open(BytesIO(raw_bytes)).convert("RGBA")
-    arr = np.array(raw, dtype=np.float32)
-    luma = 0.2126 * arr[..., 0] + 0.7152 * arr[..., 1] + 0.0722 * arr[..., 2]
-    arr[..., 3] = np.where(luma > luma_threshold, 0, arr[..., 3])
+def process_prop(raw_bytes: bytes, out_path: str, luma_threshold: int = 230, sat_threshold: float = 0.18) -> None:
+    """Chroma-aware white-background masking.
+    Masks pixels that are both bright (HSV Value > luma_threshold) AND
+    desaturated (HSV Saturation < sat_threshold).  Catches off-white / cream /
+    light-grey backgrounds that a pure luminance check misses, while leaving
+    bright but saturated prop colours untouched."""
+    raw  = Image.open(BytesIO(raw_bytes)).convert("RGBA")
+    arr  = np.array(raw, dtype=np.float32)
+    r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
+    v   = np.maximum(np.maximum(r, g), b)           # HSV Value  [0-255]
+    mn  = np.minimum(np.minimum(r, g), b)
+    s   = np.where(v > 0, (v - mn) / v, 0.0)        # HSV Sat    [0-1]
+    mask = (v > luma_threshold) & (s < sat_threshold)
+    arr[..., 3] = np.where(mask, 0, arr[..., 3])
     cleaned = Image.fromarray(arr.astype(np.uint8))
     bbox = cleaned.getbbox()
     if bbox:
@@ -444,10 +453,11 @@ def render_worker():
             resp.raise_for_status()
 
             sprite_name = f"{job.id}.png"
-            threshold   = int(config.get("prop_luma_threshold") or 240)
+            threshold   = int(config.get("prop_luma_threshold") or 230)
+            sat_thresh  = float(config.get("prop_luma_sat_threshold") or 0.18)
 
             if job.job_type == "prop":
-                process_prop(resp.content, os.path.join(SPRITES_DIR, sprite_name), threshold)
+                process_prop(resp.content, os.path.join(SPRITES_DIR, sprite_name), threshold, sat_thresh)
                 # Queue rotation job (WAN 360°) instead of entity variants
                 rot_id = uuid.uuid4().hex[:8]
                 frame_count = int(config.get("prop_frame_count") or 8)
@@ -627,13 +637,24 @@ def rotation_worker():
                     collected["url"] = graydient_client.extract_image_url(info)
                     log.info("[rotation %s] video url=%s", rot_id, collected["url"])
 
+            rotation_prompt  = config.get("prop_rotation_prompt") or (
+                "((EXACTLY one 360 degree rotation, subject rotates once, singular rotating view)) "
+                "subject steadily rotates 360 degrees in one full rotation at a slow, even rate. "
+                "Subject does not breathe, rotating while frozen stiff. "
+                "[multiple rotations, acceleration, variable speed rotation, "
+                "breathing, looking around, idle, movement, subtle movement] "
+                "/fps:30 /length:90 <360-rotation-high-wan:1> <360-rotation-low-wan:0.5>"
+            )
+            rotation_options = config.get("prop_rotation_options") or "/size:640x640"
+
             log.info("[rotation %s] submitting to %s", rot_id, rotation_workflow)
             graydient_client.render_create(
-                prompt="smooth 360 degree turntable rotation, full object visible",
+                prompt=rotation_prompt,
                 workflow=rotation_workflow,
                 api_key=api_key,
                 on_event=on_event,
                 init_image=source_url,
+                extra_options=rotation_options,
             )
 
             if not collected["url"]:
@@ -653,13 +674,14 @@ def rotation_worker():
             log.info("[rotation %s] extracting %d frames", rot_id, frame_count)
             frame_paths = extract_rotation_frames(video_path, frame_count)
 
-            threshold = int(config.get("prop_luma_threshold") or 240)
+            threshold  = int(config.get("prop_luma_threshold") or 230)
+            sat_thresh = float(config.get("prop_luma_sat_threshold") or 0.18)
             masked_paths = []
             for i, fp in enumerate(frame_paths):
                 with open(fp, "rb") as fh:
                     raw_bytes = fh.read()
                 masked_path = os.path.join(SPRITES_DIR, f"{rot_id}_rf{i}.png")
-                process_prop(raw_bytes, masked_path, threshold)
+                process_prop(raw_bytes, masked_path, threshold, sat_thresh)
                 masked_paths.append(masked_path)
 
             sheet_img  = stitch_frames(masked_paths)
@@ -853,6 +875,39 @@ def get_rotation_job(rot_job_id: str):
 def list_rotation_jobs():
     with ROTATION_JOBS_LOCK:
         return list(ROTATION_JOBS.values())
+
+@app.post("/rotation-jobs/{sprite_job_id}/rerender")
+async def rerender_rotation(sprite_job_id: str, request: Request):
+    """Queue a new WAN rotation job for an existing prop sprite job."""
+    body = {}
+    try: body = await request.json()
+    except Exception: pass
+    auth = request.headers.get("Authorization", "")
+    profile_id = body.get("profile_id") or (auth.replace("Bearer ", "") if auth else None)
+
+    with JOBS_LOCK:
+        if sprite_job_id not in JOBS:
+            raise HTTPException(404, "no such sprite job")
+        sprite_job = JOBS[sprite_job_id]
+    if sprite_job.job_type != "prop":
+        raise HTTPException(400, "job is not a prop")
+    if not sprite_job.source_url:
+        raise HTTPException(400, "sprite source URL not available yet — wait for render to complete")
+
+    rot_id = uuid.uuid4().hex[:8]
+    frame_count = int(config.get("prop_frame_count") or 8)
+    rj = RotationJob(
+        id=rot_id, sprite_job_id=sprite_job_id, status="queued",
+        frame_count=frame_count, created_at=time.time(),
+    )
+    with ROTATION_JOBS_LOCK:
+        ROTATION_JOBS[rot_id] = rj
+    # Update parent job's rotation reference
+    with JOBS_LOCK:
+        sprite_job.variant_job_ids = {**sprite_job.variant_job_ids, "rotation": rot_id}
+    ROTATION_JOB_QUEUE.put(rot_id)
+    log.info("[rerender] queued new rotation job %s for sprite %s", rot_id, sprite_job_id)
+    return {"ok": True, "rotation_job_id": rot_id}
 
 @app.put("/rotation-jobs/{rot_job_id}/calibrate")
 async def calibrate_rotation(rot_job_id: str, request: Request):

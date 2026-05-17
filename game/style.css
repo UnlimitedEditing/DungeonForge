@@ -1862,6 +1862,22 @@ button:disabled { opacity: 0.4; cursor: wait; }
   transform: none;
 }
 .hub-sub-close-btn:hover { color: var(--amber); border-color: var(--amber-dim); }
+.hub-sub-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.hub-sub-nav-btn {
+  background: transparent;
+  color: var(--amber-dim);
+  border: 1px solid var(--rust);
+  padding: 3px 10px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  cursor: pointer;
+  transition: color 80ms, border-color 80ms, background 80ms;
+}
+.hub-sub-nav-btn:hover { color: var(--amber); border-color: var(--amber-dim); background: rgba(255,160,30,0.06); }
 
 /* Body */
 .hub-sub-body {

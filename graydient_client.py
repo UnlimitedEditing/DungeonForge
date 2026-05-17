@@ -60,6 +60,7 @@ def render_create(
     seed: Optional[int] = None,
     strength: Optional[float] = None,
     control_slug: Optional[str] = None,
+    extra_options: Optional[str] = None,
 ) -> None:
     """
     Submit a workflow render and stream progress events back.
@@ -73,6 +74,8 @@ def render_create(
 
     control_slug: optional ControlNet reference slug — appends /image1:{slug}
     to the options string when provided.
+
+    extra_options: raw option string appended verbatim (e.g. '/size:640x640 /fps:30').
     """
     options_parts = [f"/run:{workflow}"]
     if seed is not None:
@@ -81,6 +84,8 @@ def render_create(
         options_parts.append(f"/strength:{strength:.2f}")
     if control_slug is not None:
         options_parts.append(f"/image1:{control_slug}")
+    if extra_options:
+        options_parts.append(extra_options.strip())
 
     body = {
         "options": " ".join(options_parts),
