@@ -187,10 +187,13 @@ export function buildLevelGeometry(level) {
   // Materials
   const floorMat = new THREE.MeshStandardMaterial({ color: 0x3a2820, roughness: 0.9 });
   const ceilMat  = new THREE.MeshStandardMaterial({ color: 0x1a1208, roughness: 0.9 });
-  const wallMat  = new THREE.MeshStandardMaterial({ color: 0x4a3a2a, roughness: 0.85 });
+  const wallMat  = new THREE.MeshStandardMaterial({ color: 0x4a3a2a, roughness: 0.85, side: THREE.DoubleSide });
   const endFloor = new THREE.MeshStandardMaterial({ color: 0x201828, roughness: 0.9 });
-  const endWall  = new THREE.MeshStandardMaterial({ color: 0x2a1c30, roughness: 0.85 });
+  const endWall  = new THREE.MeshStandardMaterial({ color: 0x2a1c30, roughness: 0.85, side: THREE.DoubleSide });
   const startFlr = new THREE.MeshStandardMaterial({ color: 0x28201a, roughness: 0.9 });
+
+  // Wall registry — each solid wall segment keyed by "tileX,tileY:dir"
+  const wallMap = new Map();
 
   // Build lookup map
   const tileMap = new Map();
@@ -239,10 +242,13 @@ export function buildLevelGeometry(level) {
 
       if (!neighbor) {
         // Solid wall
+        const wallKey = `${tile.x},${tile.y}:${dir}`;
         const geo  = new THREE.BoxGeometry(TILE_SIZE, WALL_H, 0.3);
         const mesh = new THREE.Mesh(geo, wMat);
         mesh.rotation.y = rotY;
         mesh.position.set(wallX, wallY, wallZ);
+        mesh.userData.wallKey = wallKey;
+        wallMap.set(wallKey, { mesh, tileX: tile.x, tileY: tile.y, dir });
         group.add(mesh);
       } else {
         const nPriority  = nx * 1000 + ny;
@@ -284,10 +290,13 @@ export function buildLevelGeometry(level) {
         } else {
           // Solid wall between unconnected neighbors — only from lower-priority tile
           if (isLower) {
+            const wallKey = `${tile.x},${tile.y}:${dir}`;
             const geo  = new THREE.BoxGeometry(TILE_SIZE, WALL_H, 0.3);
             const mesh = new THREE.Mesh(geo, wMat);
             mesh.rotation.y = rotY;
             mesh.position.set(wallX, wallY, wallZ);
+            mesh.userData.wallKey = wallKey;
+            wallMap.set(wallKey, { mesh, tileX: tile.x, tileY: tile.y, dir });
             group.add(mesh);
           }
         }
@@ -317,7 +326,7 @@ export function buildLevelGeometry(level) {
     group.userData.endWorldPos = { x: endCx, z: endCz };
   }
 
-  return group;
+  return { group, wallMap };
 }
 
 // ── buildLevelLights ──────────────────────────────────────────────────────────
