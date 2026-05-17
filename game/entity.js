@@ -366,27 +366,44 @@ export async function loadJobHistory() {
     const variantFetches = [];
     for (const job of jobs) {
       if (job.status !== 'done' || sprites.has(job.id)) continue;
+      const isProp = job.job_type === 'prop';
       sprites.set(job.id, {
         jobId: job.id, status: 'done', prompt: job.prompt,
         mesh: null, position: null, floorY: null, roam: null,
+        jobType:  isProp ? 'prop' : 'entity',
+        aiState:  isProp ? 'static' : null,
         spriteSrc: job.sprite_name ? `${FORGE_BASE}/sprites/${job.sprite_name}` : null,
         variants: {}, historical: true,
       });
       for (const [vtype, vid] of Object.entries(job.variant_job_ids ?? {})) {
-        variantFetches.push({ jobId: job.id, vtype, vid });
+        variantFetches.push({ jobId: job.id, vtype, vid, isProp });
       }
     }
-    // Load variant metadata in parallel
-    await Promise.all(variantFetches.map(async ({ jobId, vtype, vid }) => {
+    // Load variant/rotation metadata in parallel
+    await Promise.all(variantFetches.map(async ({ jobId, vtype, vid, isProp }) => {
+      const entry = sprites.get(jobId);
+      if (!entry) return;
       try {
-        const vres = await fetch(`${FORGE_BASE}/variant-jobs/${vid}`);
-        if (!vres.ok) return;
-        const vj = await vres.json();
-        const entry = sprites.get(jobId);
-        if (!entry) return;
-        entry.variants[vtype] = { jobId: vid, status: vj.status, spriteName: vj.sprite_name, frameCount: vj.frame_count ?? 1 };
-        if (vj.status === 'done' && vj.sprite_name && (vtype === 'walk' || vtype === 'back') && (vj.frame_count ?? 1) > 1) {
-          loadWalkSheet(vj.sprite_name, vj.frame_count, vtype, entry);
+        if (vtype === 'rotation') {
+          // Prop rotation sheets live at /rotation-jobs/, not /variant-jobs/
+          const rres = await fetch(`${FORGE_BASE}/rotation-jobs/${vid}`);
+          if (!rres.ok) return;
+          const rj = await rres.json();
+          if (rj.status === 'done' && rj.sprite_name) {
+            loadRotationSheet(rj.sprite_name, rj.frame_count, entry);
+            if (rj.frame_map?.length) entry.rotationFrameMap = rj.frame_map;
+          } else if (rj.status !== 'failed') {
+            // Still in progress — keep polling
+            pollRotationJob(vid, entry);
+          }
+        } else {
+          const vres = await fetch(`${FORGE_BASE}/variant-jobs/${vid}`);
+          if (!vres.ok) return;
+          const vj = await vres.json();
+          entry.variants[vtype] = { jobId: vid, status: vj.status, spriteName: vj.sprite_name, frameCount: vj.frame_count ?? 1 };
+          if (vj.status === 'done' && vj.sprite_name && (vtype === 'walk' || vtype === 'back') && (vj.frame_count ?? 1) > 1) {
+            loadWalkSheet(vj.sprite_name, vj.frame_count, vtype, entry);
+          }
         }
       } catch { /* silently skip broken variant */ }
     }));

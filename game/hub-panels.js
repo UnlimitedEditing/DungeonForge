@@ -163,10 +163,14 @@ async function loadPipelineConfig() {
     if (!res.ok) return;
     const cfg = await res.json();
     const el = id => document.getElementById(id);
-    const p = el('lib-pipeline'); if (p) p.value = cfg.spawn_pipeline ?? 'turnaround';
-    const t = el('lib-prop-template'); if (t) t.value = cfg.prop_prompt_template ?? '';
-    const l = el('lib-luma-threshold'); if (l) l.value = cfg.prop_luma_threshold ?? 240;
-    const f = el('lib-prop-frames'); if (f) f.value = cfg.prop_frame_count ?? 8;
+    const p  = el('lib-pipeline');          if (p)  p.value  = cfg.spawn_pipeline ?? 'turnaround';
+    const w  = el('lib-prop-workflow');     if (w)  w.value  = cfg.prop_workflow ?? 'qwen';
+    const t  = el('lib-prop-template');     if (t)  t.value  = cfg.prop_prompt_template ?? '';
+    const rp = el('lib-rotation-prompt');   if (rp) rp.value = cfg.prop_rotation_prompt ?? '';
+    const ro = el('lib-rotation-options');  if (ro) ro.value = cfg.prop_rotation_options ?? '/size:640x640';
+    const l  = el('lib-luma-threshold');    if (l)  l.value  = cfg.prop_luma_threshold ?? 230;
+    const s  = el('lib-luma-sat');          if (s)  s.value  = cfg.prop_luma_sat_threshold ?? 0.18;
+    const f  = el('lib-prop-frames');       if (f)  f.value  = cfg.prop_frame_count ?? 8;
   } catch (_) {}
 }
 
@@ -180,10 +184,14 @@ async function savePipelineConfig() {
     if (!cfgRes.ok) throw new Error('could not fetch config');
     const cfg = await cfgRes.json();
     const el = id => document.getElementById(id);
-    const p = el('lib-pipeline'); if (p) cfg.spawn_pipeline = p.value;
-    const t = el('lib-prop-template'); if (t) cfg.prop_prompt_template = t.value;
-    const l = el('lib-luma-threshold'); if (l) cfg.prop_luma_threshold = parseInt(l.value);
-    const f = el('lib-prop-frames'); if (f) cfg.prop_frame_count = parseInt(f.value);
+    const p  = el('lib-pipeline');          if (p)  cfg.spawn_pipeline           = p.value;
+    const w  = el('lib-prop-workflow');     if (w)  cfg.prop_workflow             = w.value.trim();
+    const t  = el('lib-prop-template');     if (t)  cfg.prop_prompt_template      = t.value;
+    const rp = el('lib-rotation-prompt');   if (rp) cfg.prop_rotation_prompt      = rp.value;
+    const ro = el('lib-rotation-options');  if (ro) cfg.prop_rotation_options      = ro.value.trim();
+    const l  = el('lib-luma-threshold');    if (l)  cfg.prop_luma_threshold        = parseInt(l.value);
+    const s  = el('lib-luma-sat');          if (s)  cfg.prop_luma_sat_threshold    = parseFloat(s.value);
+    const f  = el('lib-prop-frames');       if (f)  cfg.prop_frame_count           = parseInt(f.value);
     const res = await fetch(`${FORGE_BASE}/config`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(cfg),
@@ -817,6 +825,10 @@ document.getElementById('sub-forge-btn').addEventListener('click', async () => {
 });
 
 document.getElementById('substance-close-btn').addEventListener('click', closeSubstancePanel);
+document.getElementById('substance-prop-catalogue-btn').addEventListener('click', () => {
+  closeSubstancePanel();
+  openPropCataloguePanel();
+});
 
 // ─────────────────────────────────────────────
 // EXPERIENCE PICKER
@@ -1416,6 +1428,7 @@ function renderPropDetail(p) {
 
     <div class="prop-detail-section">
       <div class="prop-detail-section-label">// STATES</div>
+      <button class="prop-action-btn" id="prop-rerender-rotation-btn">↺ RERENDER ROTATION</button>
       <button class="prop-action-btn" id="prop-regen-damaged-btn">↺ REGEN DAMAGED STATE</button>
     </div>
 
@@ -1488,6 +1501,7 @@ function renderPropDetail(p) {
 
   document.getElementById('prop-save-btn').addEventListener('click', () => savePropConfig(p.job_id, rotJob?.id));
   document.getElementById('prop-regen-damaged-btn').addEventListener('click', () => regenDamagedState(p.job_id));
+  document.getElementById('prop-rerender-rotation-btn').addEventListener('click', () => reRenderRotation(p.job_id));
 }
 
 async function savePropConfig(jobId, rotJobId) {
@@ -1541,6 +1555,24 @@ async function regenDamagedState(jobId) {
   } catch (e) {
     btn.textContent = `ERROR: ${e.message.slice(0, 30)}`;
     setTimeout(() => { btn.disabled = false; btn.textContent = '↺ REGEN DAMAGED STATE'; }, 3000);
+  }
+}
+
+async function reRenderRotation(jobId) {
+  const btn = document.getElementById('prop-rerender-rotation-btn');
+  btn.disabled = true; btn.textContent = '↺ QUEUING…';
+  try {
+    const res = await fetch(`${FORGE_BASE}/rotation-jobs/${jobId}/rerender`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile_id: profileId }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    btn.textContent = '↺ QUEUED — reloading…';
+    setTimeout(() => { loadPropCatalogue(); }, 1500);
+    setTimeout(() => { btn.disabled = false; btn.textContent = '↺ RERENDER ROTATION'; }, 4000);
+  } catch (e) {
+    btn.textContent = `ERROR: ${e.message.slice(0, 35)}`;
+    setTimeout(() => { btn.disabled = false; btn.textContent = '↺ RERENDER ROTATION'; }, 3000);
   }
 }
 

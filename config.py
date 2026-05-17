@@ -138,10 +138,19 @@ DEFAULTS: dict[str, Any] = {
         "complex backgrounds, shadows, reflections, low quality, blurry]"
     ),
 
-    # Luminance threshold for white-background masking (0–255).
-    # Pixels with luminance above this value become transparent.
-    # 240 keeps edge anti-aliasing while removing the white background.
-    "prop_luma_threshold": 240,
+    # Graydient workflow slug for prop sprite renders.
+    # Falls back to the entity 'workflow' key if empty.
+    "prop_workflow": "qwen",
+
+    # HSV Value threshold (0–255) for white-background masking.
+    # Pixels brighter than this are candidates for removal.
+    # Lower = more aggressive removal of near-white areas.
+    "prop_luma_threshold": 230,
+
+    # HSV Saturation threshold (0–1) for white-background masking.
+    # Pixels with saturation below this value are considered background.
+    # Raise to catch more off-white; lower to protect desaturated prop colours.
+    "prop_luma_sat_threshold": 0.18,
 
     # Number of frames extracted from the WAN rotation video.
     # Must divide evenly into 360 for clean angle mapping (4, 8, or 16).
@@ -149,6 +158,21 @@ DEFAULTS: dict[str, Any] = {
 
     # Graydient workflow slug for 360° rotation video generation.
     "prop_rotation_workflow": "animate-wan22",
+
+    # Prompt sent to the WAN rotation workflow. Inline LoRA weights and
+    # Graydient /fps /length flags are supported inside this string.
+    "prop_rotation_prompt": (
+        "((EXACTLY one 360 degree rotation, subject rotates once, singular rotating view)) "
+        "subject steadily rotates 360 degrees in one full rotation at a slow, even rate. "
+        "Subject does not breathe, rotating while frozen stiff. "
+        "[multiple rotations, acceleration, variable speed rotation, "
+        "breathing, looking around, idle, movement, subtle movement] "
+        "/fps:30 /length:90 <360-rotation-high-wan:1> <360-rotation-low-wan:0.5>"
+    ),
+
+    # Extra options appended to the Graydient options string for rotation renders.
+    # Use this for /size:, /seed: overrides, etc. Leave empty for workflow defaults.
+    "prop_rotation_options": "/size:640x640",
 
     # --- Arcanum: progression tuning ---
     "xp_multiplier":   1.0,   # multiplied on every XP gain
