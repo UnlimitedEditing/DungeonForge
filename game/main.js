@@ -573,7 +573,7 @@ const termStatus = document.getElementById('terminal-status');
 setTermStatus(termStatus);
 
 function openTerminal()  { terminal.dataset.open = 'true';  crosshair.dataset.visible = 'false'; }
-function closeTerminal() { terminal.dataset.open = 'false'; crosshair.dataset.visible = 'true';  }
+function closeTerminal() { terminal.dataset.open = 'false'; crosshair.dataset.visible = 'true'; document.activeElement?.blur(); }
 
 controls.addEventListener('lock',   () => { closeTerminal(); termStatus.textContent = 'link: locked'; });
 controls.addEventListener('unlock', () => { openTerminal();  termStatus.textContent = 'link: idle';   });
@@ -611,6 +611,7 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.code === 'Escape' && appMode === 'room' && !controls.isLocked) {
     if (inventoryPanelEl.dataset.open === 'true') { closeInventory(); return; }
+    if (terminal.dataset.open === 'true') { controls.lock(); return; }
     returnToForge();
   }
   // Don't steal keypresses from focused text inputs (e.g. spawn prompt, config fields)

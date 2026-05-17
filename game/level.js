@@ -239,7 +239,7 @@ export function buildLevelGeometry(level) {
 
       if (!neighbor) {
         // Solid wall
-        const geo  = new THREE.PlaneGeometry(TILE_SIZE, WALL_H);
+        const geo  = new THREE.BoxGeometry(TILE_SIZE, WALL_H, 0.3);
         const mesh = new THREE.Mesh(geo, wMat);
         mesh.rotation.y = rotY;
         mesh.position.set(wallX, wallY, wallZ);
@@ -258,9 +258,9 @@ export function buildLevelGeometry(level) {
             const lintelY = DOOR_H + (WALL_H - DOOR_H) / 2;
             const isNS    = dir === 'n' || dir === 's';
 
-            const leftGeo   = new THREE.PlaneGeometry(sw, WALL_H);
-            const rightGeo  = new THREE.PlaneGeometry(sw, WALL_H);
-            const lintelGeo = new THREE.PlaneGeometry(DOOR_W, WALL_H - DOOR_H);
+            const leftGeo   = new THREE.BoxGeometry(sw, WALL_H, 0.3);
+            const rightGeo  = new THREE.BoxGeometry(sw, WALL_H, 0.3);
+            const lintelGeo = new THREE.BoxGeometry(DOOR_W, WALL_H - DOOR_H, 0.3);
 
             const leftMesh   = new THREE.Mesh(leftGeo,   wMat);
             const rightMesh  = new THREE.Mesh(rightGeo,  wMat);
@@ -284,7 +284,7 @@ export function buildLevelGeometry(level) {
         } else {
           // Solid wall between unconnected neighbors — only from lower-priority tile
           if (isLower) {
-            const geo  = new THREE.PlaneGeometry(TILE_SIZE, WALL_H);
+            const geo  = new THREE.BoxGeometry(TILE_SIZE, WALL_H, 0.3);
             const mesh = new THREE.Mesh(geo, wMat);
             mesh.rotation.y = rotY;
             mesh.position.set(wallX, wallY, wallZ);

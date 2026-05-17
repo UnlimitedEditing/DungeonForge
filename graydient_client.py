@@ -105,7 +105,7 @@ def render_create(
         headers=_headers(api_key, stream=True),
         json=body,
         stream=True,
-        timeout=600,
+        timeout=(15, 180),  # 15s connect, 180s between SSE events
     )
     resp.raise_for_status()
 
