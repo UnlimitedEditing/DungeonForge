@@ -238,6 +238,7 @@ class Job(BaseModel):
     is_boss: bool = False
     entity_stats: Optional[dict] = None   # combat stats, rolled for entity jobs
     item_meta: Optional[dict] = None      # {name, type, subtype, rarity, stats} for item jobs
+    graydient_hash: Optional[str] = None  # render_hash assigned by Graydient (set on completion)
 
 class VariantJob(BaseModel):
     id: str
@@ -250,6 +251,7 @@ class VariantJob(BaseModel):
     error: Optional[str] = None
     created_at: float
     finished_at: Optional[float] = None
+    graydient_hash: Optional[str] = None  # render_hash assigned by Graydient (set on completion)
 
 class RotationJob(BaseModel):
     id: str
@@ -261,6 +263,7 @@ class RotationJob(BaseModel):
     error: Optional[str] = None
     created_at: float
     finished_at: Optional[float] = None
+    graydient_hash: Optional[str] = None  # render_hash assigned by Graydient (set on completion)
 
 JOBS:         dict[str, Job]        = {}
 VARIANT_JOBS: dict[str, VariantJob] = {}
@@ -284,12 +287,44 @@ class WeaponJob(BaseModel):
     error: Optional[str] = None
     created_at: float
     finished_at: Optional[float] = None
+    graydient_hash: Optional[str] = None  # render_hash assigned by Graydient (set on completion)
 
 WEAPON_JOBS: dict[str, WeaponJob] = {}
 WEAPON_JOB_QUEUE: "queue.Queue[str]" = queue.Queue()
 WEAPON_JOBS_LOCK  = threading.Lock()
 
 _JOBS_PATH = os.path.join(os.path.dirname(__file__), "jobs.json")
+
+# ---------- render slot management ----------
+#
+# Graydient handles up to 4 concurrent renders comfortably. Every render_create()
+# call must acquire a slot for the duration of the SSE stream so we never exceed
+# that limit across all worker threads (sprite, variant, weapon, rotation).
+_RENDER_SLOTS = threading.Semaphore(4)
+
+# Global registry of Graydient render_hashes we have already consumed.
+# Prevents a stale SSE event from a prior interrupted render from being accepted
+# by a later job's stream. Bounded to the last 2000 hashes to avoid unbounded growth.
+_CLAIMED_HASHES:      set[str] = set()
+_CLAIMED_HASHES_FIFO: list[str] = []     # insertion-order eviction list
+_CLAIMED_HASHES_LOCK = threading.Lock()
+_CLAIMED_HASHES_MAX  = 2000
+
+def _claim_render_hash(render_hash: str) -> bool:
+    """Atomically claim a Graydient render_hash.
+
+    Returns True and records the claim if this is the first time we see this hash.
+    Returns False (stale — discard) if we've already processed it.
+    """
+    with _CLAIMED_HASHES_LOCK:
+        if render_hash in _CLAIMED_HASHES:
+            return False
+        _CLAIMED_HASHES.add(render_hash)
+        _CLAIMED_HASHES_FIFO.append(render_hash)
+        # Evict oldest entries when the registry is full
+        while len(_CLAIMED_HASHES_FIFO) > _CLAIMED_HASHES_MAX:
+            _CLAIMED_HASHES.discard(_CLAIMED_HASHES_FIFO.pop(0))
+        return True
 
 
 def _persist_snapshot() -> None:
@@ -345,20 +380,25 @@ def render_variant_frame(
 
     def on_event(event, _label=label):
         if "rendering_done" in event:
-            data = event["rendering_done"]
-            info = graydient_client.render_info(data["render_hash"], api_key)
+            data  = event["rendering_done"]
+            rh    = data.get("render_hash", "")
+            if not _claim_render_hash(rh):
+                log.warning("[%s] stale render_hash=%s — discarding", _label, rh)
+                return
+            info = graydient_client.render_info(rh, api_key)
             collected["url"] = graydient_client.extract_image_url(info)
             log.info("[%s] frame url=%s", _label, collected["url"])
 
-    graydient_client.render_create(
-        prompt=prompt,
-        workflow=config.get("variant_workflow"),
-        api_key=api_key,
-        on_event=on_event,
-        init_image=source_url,
-        strength=float(config.get("variant_strength")),
-        control_slug=control_slug,
-    )
+    with _RENDER_SLOTS:
+        graydient_client.render_create(
+            prompt=prompt,
+            workflow=config.get("variant_workflow"),
+            api_key=api_key,
+            on_event=on_event,
+            init_image=source_url,
+            strength=float(config.get("variant_strength")),
+            control_slug=control_slug,
+        )
     if not collected["url"]:
         raise RuntimeError("render stream closed with no URL")
     return collected["url"]
@@ -395,7 +435,13 @@ def render_one(job: Job, api_key: str) -> str:
     def on_event(event):
         if "rendering_done" in event:
             data = event["rendering_done"]
-            info = graydient_client.render_info(data["render_hash"], api_key)
+            rh   = data.get("render_hash", "")
+            if not _claim_render_hash(rh):
+                log.warning("[%s] stale render_hash=%s — discarding", job.id, rh)
+                return
+            with JOBS_LOCK:
+                job.graydient_hash = rh
+            info = graydient_client.render_info(rh, api_key)
             collected["url"] = graydient_client.extract_image_url(info)
             log.info("[%s] sprite done, url=%s", job.id, collected["url"])
 
@@ -404,12 +450,13 @@ def render_one(job: Job, api_key: str) -> str:
     else:
         workflow = config.get("workflow")
     log.info("[%s] submitting sprite (workflow=%s)", job.id, workflow)
-    graydient_client.render_create(
-        prompt=job.full_prompt,
-        workflow=workflow,
-        api_key=api_key,
-        on_event=on_event,
-    )
+    with _RENDER_SLOTS:
+        graydient_client.render_create(
+            prompt=job.full_prompt,
+            workflow=workflow,
+            api_key=api_key,
+            on_event=on_event,
+        )
 
     if not collected["url"]:
         raise RuntimeError("graydient stream closed with no image URL")
@@ -666,12 +713,19 @@ def rotation_worker():
             frame_count = int(rj.frame_count)
 
             collected: dict = {"url": None}
-            def on_event(event):
+            def on_event(event, _rot_id=rot_id):
                 if "rendering_done" in event:
                     data = event["rendering_done"]
-                    info = graydient_client.render_info(data["render_hash"], api_key)
+                    rh   = data.get("render_hash", "")
+                    if not _claim_render_hash(rh):
+                        log.warning("[rotation %s] stale render_hash=%s — discarding", _rot_id, rh)
+                        return
+                    with ROTATION_JOBS_LOCK:
+                        if _rot_id in ROTATION_JOBS:
+                            ROTATION_JOBS[_rot_id].graydient_hash = rh
+                    info = graydient_client.render_info(rh, api_key)
                     collected["url"] = graydient_client.extract_image_url(info)
-                    log.info("[rotation %s] video url=%s", rot_id, collected["url"])
+                    log.info("[rotation %s] video url=%s", _rot_id, collected["url"])
 
             rotation_prompt  = config.get("prop_rotation_prompt") or (
                 "((EXACTLY one 360 degree rotation, subject rotates once, singular rotating view)) "
@@ -684,14 +738,15 @@ def rotation_worker():
             rotation_options = config.get("prop_rotation_options") or "/size:640x640"
 
             log.info("[rotation %s] submitting to %s", rot_id, rotation_workflow)
-            graydient_client.render_create(
-                prompt=rotation_prompt,
-                workflow=rotation_workflow,
-                api_key=api_key,
-                on_event=on_event,
-                init_image=source_url,
-                extra_options=rotation_options,
-            )
+            with _RENDER_SLOTS:
+                graydient_client.render_create(
+                    prompt=rotation_prompt,
+                    workflow=rotation_workflow,
+                    api_key=api_key,
+                    on_event=on_event,
+                    init_image=source_url,
+                    extra_options=rotation_options,
+                )
 
             if not collected["url"]:
                 raise RuntimeError("rotation stream closed with no URL")
@@ -797,12 +852,19 @@ def weapon_worker():
             ref_image   = wt.get("reference_image")   # sprite filename or None
             collected   = {"url": None}
 
-            def on_event(event):
+            def on_event(event, _jid=job_id):
                 if "rendering_done" in event:
                     data = event["rendering_done"]
-                    info = graydient_client.render_info(data["render_hash"], api_key)
+                    rh   = data.get("render_hash", "")
+                    if not _claim_render_hash(rh):
+                        log.warning("[weapon %s] stale render_hash=%s — discarding", _jid, rh)
+                        return
+                    with WEAPON_JOBS_LOCK:
+                        if _jid in WEAPON_JOBS:
+                            WEAPON_JOBS[_jid].graydient_hash = rh
+                    info = graydient_client.render_info(rh, api_key)
                     collected["url"] = graydient_client.extract_image_url(info)
-                    log.info("[weapon %s] url=%s", job_id, collected["url"])
+                    log.info("[weapon %s] url=%s", _jid, collected["url"])
 
             if ref_image:
                 ref_path = os.path.join(SPRITES_DIR, ref_image)
@@ -813,22 +875,23 @@ def weapon_worker():
             else:
                 ref_url = None
 
-            if ref_url:
-                graydient_client.render_create(
-                    prompt=wj.prompt,
-                    workflow=workflow,
-                    api_key=api_key,
-                    on_event=on_event,
-                    init_image=ref_url,
-                    strength=float(config.get("variant_strength")),
-                )
-            else:
-                graydient_client.render_create(
-                    prompt=wj.prompt,
-                    workflow=config.get("workflow"),
-                    api_key=api_key,
-                    on_event=on_event,
-                )
+            with _RENDER_SLOTS:
+                if ref_url:
+                    graydient_client.render_create(
+                        prompt=wj.prompt,
+                        workflow=workflow,
+                        api_key=api_key,
+                        on_event=on_event,
+                        init_image=ref_url,
+                        strength=float(config.get("variant_strength")),
+                    )
+                else:
+                    graydient_client.render_create(
+                        prompt=wj.prompt,
+                        workflow=config.get("workflow"),
+                        api_key=api_key,
+                        on_event=on_event,
+                    )
 
             if not collected["url"]:
                 raise RuntimeError("no URL from Graydient")
@@ -859,10 +922,14 @@ def weapon_worker():
         finally:
             WEAPON_JOB_QUEUE.task_done()
 
-threading.Thread(target=render_worker,  daemon=True).start()
-threading.Thread(target=variant_worker, daemon=True).start()
-threading.Thread(target=rotation_worker, daemon=True).start()
-threading.Thread(target=weapon_worker,  daemon=True).start()
+# Two sprite + two variant workers to support up to 4 concurrent Graydient renders.
+# _RENDER_SLOTS (Semaphore(4)) ensures we never exceed Graydient's comfortable limit
+# across all worker types combined (sprite + variant + weapon + rotation).
+for _i in range(2):
+    threading.Thread(target=render_worker,  daemon=True, name=f"sprite-{_i}").start()
+    threading.Thread(target=variant_worker, daemon=True, name=f"variant-{_i}").start()
+threading.Thread(target=rotation_worker, daemon=True, name="rotation").start()
+threading.Thread(target=weapon_worker,  daemon=True, name="weapon").start()
 
 # ---------- API ----------
 
