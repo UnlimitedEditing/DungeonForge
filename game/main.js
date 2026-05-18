@@ -1028,5 +1028,5 @@ async function applyIcons() {
 applyIcons();
 initActionBar();
 initSpawnManager();
-initWeapon();
+try { initWeapon(); } catch (_) {}
 initProfile();

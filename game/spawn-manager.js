@@ -26,9 +26,48 @@ export function initSpawnManager() {
   on(EVENTS.LEVEL_LOADED, ({ seed }) => _spawnLevel(seed));
 }
 
+function _isRosterMode() {
+  return Array.isArray(activeExperience?.roster) && activeExperience.roster.length > 0;
+}
+
+function _primeCache(roster) {
+  for (const entry of roster) {
+    if (entry.prompt && entry.sprite_name) {
+      spriteCache.set(entry.prompt, {
+        spriteName: entry.sprite_name,
+        stats:      entry.stats ?? null,
+        variants:   entry.variants ?? {},
+      });
+    }
+  }
+}
+
+function _buildRosterTheme(roster) {
+  const creatures = roster
+    .filter(e => !e.is_boss)
+    .map(e => ({ name: e.prompt, tier: Math.round((e.tier ?? 0.5) * 4) + 1 }));
+  const boss = roster.find(e => e.is_boss);
+  return {
+    dungeonName:  activeExperience.lore?.title ?? activeExperience.name ?? 'The Dungeon',
+    atmosphere:   activeExperience.lore?.description ?? '',
+    creatures,
+    boss: boss ? { name: boss.prompt } : null,
+    _rosterMode:  true,
+  };
+}
+
 async function _spawnLevel(seed) {
   if (!activeExperience?.id || !profileId) return;
   _currentTheme = null;
+
+  if (_isRosterMode()) {
+    _primeCache(activeExperience.roster);
+    const theme = _buildRosterTheme(activeExperience.roster);
+    _currentTheme = theme;
+    emit(EVENTS.DUNGEON_THEME_READY, theme);
+    await _populate(theme, currentLevel, true);
+    return;
+  }
 
   const theme = await _fetchTheme(seed);
   if (!theme) {
@@ -37,7 +76,7 @@ async function _spawnLevel(seed) {
   }
   _currentTheme = theme;
   emit(EVENTS.DUNGEON_THEME_READY, theme);
-  await _populate(theme, currentLevel);
+  await _populate(theme, currentLevel, false);
 }
 
 async function _fetchTheme(seed) {
@@ -93,7 +132,7 @@ async function _spawnCreature(description, options) {
   }
 }
 
-async function _populate(theme, level) {
+async function _populate(theme, level, rosterMode = false) {
   if (!level) return;
 
   const distMap = _bfsDistances(level);
@@ -126,7 +165,8 @@ async function _populate(theme, level) {
     if (!candidates.length) continue;
 
     const creature = candidates[Math.floor(Math.random() * candidates.length)];
-    const description = `${_pickDescriptor(tier)} ${creature.name}`;
+    // In roster mode, creature.name IS the full prompt — skip the tier descriptor
+    const description = rosterMode ? creature.name : `${_pickDescriptor(tier)} ${creature.name}`;
     spawnPlan.push({ description, tier, isBoss: false, position });
   }
 
