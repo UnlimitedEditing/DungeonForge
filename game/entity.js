@@ -209,12 +209,15 @@ export async function spawnFromPrompt(promptText, jobType = 'entity', options = 
   let job;
   try {
     const spawnBody = {
-      prompt:          promptText,
-      profile_id:      profileId,
-      prompt_modifier: getActivePromptModifier() || undefined,
-      stat_tier:       getStatTier(promptText),
-      job_type:        jobType,   // explicit, overrides server config
-      is_boss:         options.isBoss ?? false,
+      prompt:              promptText,
+      profile_id:          profileId,
+      prompt_modifier:     getActivePromptModifier() || undefined,
+      stat_tier:           options.statTier ?? getStatTier(promptText),
+      job_type:            jobType,
+      is_boss:             options.isBoss ?? false,
+      category:            options.category || undefined,
+      scale:               options.scale ?? 1.0,
+      scale_affects_stats: options.scaleAffectsStats ?? false,
     };
     const res = await fetch(`${FORGE_BASE}/jobs`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -236,6 +239,8 @@ export async function spawnFromPrompt(promptText, jobType = 'entity', options = 
     isBoss: options.isBoss ?? false, tier: options.tier ?? 1,
     disposition: options.disposition ?? 'hostile',
     npcId: options.npcId ?? null,
+    scale: options.scale ?? 1.0,
+    category: options.category ?? null,
   });
   if (options.isBoss) setBossEntityId(job.id);
   refreshJobList();
@@ -250,6 +255,7 @@ export function spawnFromExistingSprite(description, options = {}) {
   const { isBoss = false, tier = 1, position: targetPosition } = options;
   const position = targetPosition ?? nextSpawn();
   const fakeId   = `reuse_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+  const sc       = options.scale ?? cached.scale ?? 1.0;
 
   const stats = cached.stats ? { ...cached.stats, hp: cached.stats.maxHp } : null;
   const placeholder = makePlaceholder(position);
@@ -260,6 +266,8 @@ export function spawnFromExistingSprite(description, options = {}) {
     isBoss, tier, stats, aiState: stats ? 'roam' : null, lastAttackTime: 0,
     disposition: options.disposition ?? cached.disposition ?? 'hostile',
     npcId: options.npcId ?? cached.npcId ?? null,
+    scale: sc,
+    category: options.category ?? cached.category ?? null,
   };
   sprites.set(fakeId, entry);
   if (isBoss) setBossEntityId(fakeId);
@@ -270,8 +278,10 @@ export function spawnFromExistingSprite(description, options = {}) {
     if (!e) return;
     roomScene.remove(placeholder);
     placeholder.material?.dispose(); placeholder.geometry?.dispose();
+    sprite.scale.multiplyScalar(sc);
+    sprite.position.y = floorY * sc;
     roomScene.add(sprite);
-    e.mesh = sprite; e.floorY = floorY; e.roam = initRoam();
+    e.mesh = sprite; e.floorY = floorY * sc; e.roam = initRoam();
     e.frontTex = tex; e.frontAspect = tex.image.width / tex.image.height;
     e.frontMat = sprite.material; e.spriteSrc = src;
     e.shadowBlob = createShadowBlob(); e.status = 'done';
@@ -296,6 +306,11 @@ export async function pollJob(jobId) {
     entry.status = job.status;
     refreshJobList();
     if (job.status === 'done') {
+      // Persist scale/category from the authoritative job response
+      if (job.scale != null)    entry.scale    = job.scale;
+      if (job.category != null) entry.category = job.category;
+      const sc = entry.scale ?? 1.0;
+
       if (job.job_type === 'prop') {
         // ── PROP: static object, no AI, angle-aware rotation sheet ──
         entry.jobType = 'prop';
@@ -303,14 +318,15 @@ export async function pollJob(jobId) {
         makeSprite(job.sprite_name, entry.position, (sprite, floorY, tex, src) => {
           roomScene.remove(entry.mesh);
           entry.mesh.material?.dispose(); entry.mesh.geometry?.dispose();
+          sprite.scale.multiplyScalar(sc);
+          sprite.position.y = floorY * sc;
           roomScene.add(sprite);
           entry.mesh       = sprite;
-          entry.floorY     = floorY;
+          entry.floorY     = floorY * sc;
           entry.frontMat   = sprite.material;
           entry.spriteSrc  = src;
           entry.shadowBlob = createShadowBlob();
-          // Register a collision cylinder at the prop's base
-          const radius = (SPRITE_WORLD_H * (entry.frontAspect ?? 1)) * 0.35;
+          const radius = (SPRITE_WORLD_H * sc * (entry.frontAspect ?? 1)) * 0.35;
           entry.colliderRadius = radius;
           propColliders.add(entry);
         });
@@ -333,14 +349,18 @@ export async function pollJob(jobId) {
           spriteCache.set(entry.prompt, {
             spriteName: job.sprite_name,
             stats: { ...entry.stats },
+            scale: sc,
+            category: entry.category ?? null,
           });
         }
         makeSprite(job.sprite_name, entry.position, (sprite, floorY, tex, src) => {
           roomScene.remove(entry.mesh);
           entry.mesh.material?.dispose(); entry.mesh.geometry?.dispose();
+          sprite.scale.multiplyScalar(sc);
+          sprite.position.y = floorY * sc;
           roomScene.add(sprite);
           entry.mesh        = sprite;
-          entry.floorY      = floorY;
+          entry.floorY      = floorY * sc;
           entry.roam        = initRoam();
           entry.frontTex    = tex;
           entry.frontAspect = tex.image.width / tex.image.height;

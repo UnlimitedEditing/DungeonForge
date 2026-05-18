@@ -857,19 +857,88 @@ cfgSaveBtn.addEventListener('click', saveConfig);
 
 let _spawnMode = 'entity';  // 'entity' | 'prop'
 
-const spawnInput = document.getElementById('spawn-input');
-const spawnBtn   = document.getElementById('spawn-btn');
+const spawnInput       = document.getElementById('spawn-input');
+const spawnBtn         = document.getElementById('spawn-btn');
+const _spawnCategory   = document.getElementById('spawn-category');
+const _spawnCatInfo    = document.getElementById('spawn-category-info');
+const _spawnScaleInput = document.getElementById('spawn-scale');
+const _spawnVariance   = document.getElementById('spawn-variance');
+const _spawnScaleStats = document.getElementById('spawn-scale-stats');
+const _spawnDisp       = document.getElementById('spawn-disposition');
+const _spawnNpcIdRow   = document.getElementById('spawn-npcid-row');
+const _spawnNpcId      = document.getElementById('spawn-npcid');
+const _spawnStatTier   = document.getElementById('spawn-stat-tier');
+const _spawnIsBoss     = document.getElementById('spawn-is-boss');
+const _entityPresets   = document.getElementById('spawn-entity-presets');
+const _propPresets     = document.getElementById('spawn-prop-presets');
 
-// Mode toggle buttons
+// Default scale per mode
+const _defaultScale = { entity: 1.0, prop: 0.35 };
+
+function _setActivePreset(container, scale) {
+  container?.querySelectorAll('.spawn-preset-btn').forEach(btn => {
+    btn.classList.toggle('active', parseFloat(btn.dataset.scale) === scale);
+  });
+}
+
+// Wire preset buttons — both sets share the same scale input
+document.querySelectorAll('.spawn-preset-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const sc = parseFloat(btn.dataset.scale);
+    if (_spawnScaleInput) _spawnScaleInput.value = sc;
+    const container = btn.closest('.spawn-field-row');
+    container?.querySelectorAll('.spawn-preset-btn').forEach(b =>
+      b.classList.toggle('active', b === btn));
+  });
+});
+
+// Mode toggle — swap preset rows and reset scale default
 document.getElementById('spawn-mode-entity').addEventListener('click', () => {
   _spawnMode = 'entity';
   document.getElementById('spawn-mode-entity').classList.add('active');
   document.getElementById('spawn-mode-prop').classList.remove('active');
+  if (_entityPresets) _entityPresets.style.display = '';
+  if (_propPresets)   _propPresets.style.display   = 'none';
+  if (_spawnScaleInput && parseFloat(_spawnScaleInput.value) === _defaultScale.prop) {
+    _spawnScaleInput.value = _defaultScale.entity;
+    _setActivePreset(_entityPresets, _defaultScale.entity);
+  }
 });
 document.getElementById('spawn-mode-prop').addEventListener('click', () => {
   _spawnMode = 'prop';
   document.getElementById('spawn-mode-prop').classList.add('active');
   document.getElementById('spawn-mode-entity').classList.remove('active');
+  if (_propPresets)   _propPresets.style.display   = '';
+  if (_entityPresets) _entityPresets.style.display = 'none';
+  if (_spawnScaleInput && parseFloat(_spawnScaleInput.value) === _defaultScale.entity) {
+    _spawnScaleInput.value = _defaultScale.prop;
+    _setActivePreset(_propPresets, _defaultScale.prop);
+  }
+});
+
+// Show NPC ID field only when disposition is friendly
+_spawnDisp?.addEventListener('change', () => {
+  if (_spawnNpcIdRow) _spawnNpcIdRow.style.display = _spawnDisp.value === 'friendly' ? '' : 'none';
+});
+
+// Category blur → fetch avg scale for this category
+let _catFetchTimer = null;
+_spawnCategory?.addEventListener('input', () => {
+  clearTimeout(_catFetchTimer);
+  const cat = _spawnCategory.value.trim();
+  if (!cat) { if (_spawnCatInfo) _spawnCatInfo.textContent = ''; return; }
+  _catFetchTimer = setTimeout(async () => {
+    try {
+      const res  = await fetch('/entity-categories');
+      const data = await res.json();
+      if (data[cat]) {
+        const { avg_scale, count } = data[cat];
+        if (_spawnCatInfo) _spawnCatInfo.textContent = `avg ${avg_scale}× (${count})`;
+      } else {
+        if (_spawnCatInfo) _spawnCatInfo.textContent = 'new category';
+      }
+    } catch { /* ignore */ }
+  }, 400);
 });
 
 // Back to Forge button in terminal header
@@ -879,7 +948,22 @@ if (backToForgeBtn) backToForgeBtn.addEventListener('click', returnToForge);
 function doSpawn() {
   const v = spawnInput.value.trim();
   if (!v) return;
-  spawnFromPrompt(v, _spawnMode);
+
+  const rawScale   = parseFloat(_spawnScaleInput?.value ?? '1.0') || 1.0;
+  const variance   = parseFloat(_spawnVariance?.value   ?? '0')   || 0;
+  const actualScale = Math.max(0.01, rawScale + (Math.random() * 2 - 1) * variance);
+
+  const options = {
+    scale:            actualScale,
+    category:         _spawnCategory?.value.trim() || undefined,
+    scaleAffectsStats: _spawnScaleStats?.checked ?? false,
+    disposition:      _spawnDisp?.value ?? 'hostile',
+    npcId:            _spawnNpcId?.value.trim() || null,
+    isBoss:           _spawnIsBoss?.checked ?? false,
+    statTier:         _spawnStatTier?.value !== '' ? parseFloat(_spawnStatTier.value) : undefined,
+  };
+
+  spawnFromPrompt(v, _spawnMode, options);
   spawnInput.value = ''; spawnInput.focus();
 }
 spawnBtn.addEventListener('click', doSpawn);

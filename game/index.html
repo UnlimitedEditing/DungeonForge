@@ -630,6 +630,83 @@
                  placeholder="a gaunt skeleton warrior in rusted plate, wielding a notched sword" />
           <button id="spawn-btn">SPAWN</button>
         </div>
+
+        <details class="spawn-section" id="spawn-scale-section">
+          <summary class="spawn-section-label">// SCALE &amp; CATEGORY</summary>
+          <div class="spawn-section-body">
+            <div class="spawn-field-row">
+              <label class="spawn-field-label">Category</label>
+              <input id="spawn-category" type="text" class="spawn-field-input" autocomplete="off"
+                     spellcheck="false" placeholder="e.g. goblin, undead, merchant" />
+              <span id="spawn-category-info" class="spawn-category-info"></span>
+            </div>
+            <div class="spawn-field-row" id="spawn-entity-presets">
+              <label class="spawn-field-label">Scale (entity)</label>
+              <div class="spawn-preset-row">
+                <button class="spawn-preset-btn" data-scale="0.15">Tiny</button>
+                <button class="spawn-preset-btn" data-scale="0.5">Small</button>
+                <button class="spawn-preset-btn active" data-scale="1.0">Human</button>
+                <button class="spawn-preset-btn" data-scale="2.5">Large</button>
+                <button class="spawn-preset-btn" data-scale="6.0">Huge</button>
+                <button class="spawn-preset-btn" data-scale="18.0">Colossal</button>
+              </div>
+            </div>
+            <div class="spawn-field-row" id="spawn-prop-presets" style="display:none">
+              <label class="spawn-field-label">Scale (prop)</label>
+              <div class="spawn-preset-row">
+                <button class="spawn-preset-btn" data-scale="0.04">Tiny</button>
+                <button class="spawn-preset-btn" data-scale="0.12">Banana &#x1F34C;</button>
+                <button class="spawn-preset-btn active" data-scale="0.35">Object</button>
+                <button class="spawn-preset-btn" data-scale="0.7">Furniture</button>
+                <button class="spawn-preset-btn" data-scale="1.2">Structure</button>
+              </div>
+            </div>
+            <div class="spawn-field-row">
+              <label class="spawn-field-label">Exact scale</label>
+              <input id="spawn-scale" type="number" class="spawn-field-input spawn-field-narrow"
+                     min="0.01" step="0.05" value="1.0" />
+              <label class="spawn-field-label" style="margin-left:12px">&#xB1; Variance</label>
+              <input id="spawn-variance" type="number" class="spawn-field-input spawn-field-narrow"
+                     min="0" step="0.05" value="0" />
+            </div>
+            <div class="spawn-field-row">
+              <label class="spawn-checkbox-label">
+                <input id="spawn-scale-stats" type="checkbox" />
+                Scale affects stats
+              </label>
+            </div>
+          </div>
+        </details>
+
+        <details class="spawn-section" id="spawn-advanced-section">
+          <summary class="spawn-section-label">// ADVANCED</summary>
+          <div class="spawn-section-body">
+            <div class="spawn-field-row">
+              <label class="spawn-field-label">Disposition</label>
+              <select id="spawn-disposition" class="spawn-field-select">
+                <option value="hostile">Hostile</option>
+                <option value="neutral">Neutral</option>
+                <option value="friendly">Friendly</option>
+              </select>
+            </div>
+            <div class="spawn-field-row" id="spawn-npcid-row" style="display:none">
+              <label class="spawn-field-label">NPC ID</label>
+              <input id="spawn-npcid" type="text" class="spawn-field-input"
+                     autocomplete="off" spellcheck="false" placeholder="registered NPC card ID" />
+            </div>
+            <div class="spawn-field-row">
+              <label class="spawn-field-label">Stat tier (0–1)</label>
+              <input id="spawn-stat-tier" type="number" class="spawn-field-input spawn-field-narrow"
+                     min="0" max="1" step="0.05" placeholder="auto" />
+            </div>
+            <div class="spawn-field-row">
+              <label class="spawn-checkbox-label">
+                <input id="spawn-is-boss" type="checkbox" />
+                Boss
+              </label>
+            </div>
+          </div>
+        </details>
         <div class="terminal-jobs">
           <div class="terminal-jobs-label">// active jobs</div>
           <div class="terminal-jobs-list" id="jobs-list"><div class="muted">no jobs.</div></div>

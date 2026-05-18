@@ -190,6 +190,9 @@ class JobRequest(BaseModel):
     stat_tier: Optional[float] = None       # 0.0-1.0 from scaffold archetype; None = roll random
     job_type: Optional[str] = None          # 'entity' | 'prop'; if None falls back to spawn_pipeline config
     is_boss: bool = False
+    category: Optional[str] = None         # player-defined label for scale grouping
+    scale: float = 1.0                     # size relative to human (1.0) for entities; banana (1.0) for props
+    scale_affects_stats: bool = False      # if True, shift stat_tier by (scale - 1) * 0.15
 
 class VariantRequest(BaseModel):
     profile_id: str
@@ -259,6 +262,8 @@ class Job(BaseModel):
     entity_stats: Optional[dict] = None   # combat stats, rolled for entity jobs
     item_meta: Optional[dict] = None      # {name, type, subtype, rarity, stats} for item jobs
     graydient_hash: Optional[str] = None  # render_hash assigned by Graydient (set on completion)
+    category: Optional[str] = None
+    scale: float = 1.0
 
 class VariantJob(BaseModel):
     id: str
@@ -1016,6 +1021,9 @@ def create_job(req: JobRequest):
         pipeline = config.get("spawn_pipeline") or "turnaround"
         job_type = "prop" if pipeline == "prop" else "entity"
     stat_tier = req.stat_tier if req.stat_tier is not None else 0.5
+    scale = max(0.01, req.scale)
+    if req.scale_affects_stats:
+        stat_tier = max(0.0, min(1.0, stat_tier + (scale - 1.0) * 0.15))
     if job_type == "prop":
         full_prompt  = build_prop_prompt(prompt)
         entity_stats = None
@@ -1037,6 +1045,8 @@ def create_job(req: JobRequest):
         job_type=job_type,
         is_boss=req.is_boss,
         entity_stats=entity_stats,
+        category=req.category or None,
+        scale=scale,
     )
     with JOBS_LOCK:
         JOBS[job_id] = job
@@ -1055,6 +1065,20 @@ def get_job(job_id: str):
 def list_jobs():
     with JOBS_LOCK:
         return list(JOBS.values())
+
+@app.get("/entity-categories")
+def list_entity_categories():
+    """Return per-category stats (avg_scale, count) derived from done jobs."""
+    cats: dict[str, list[float]] = {}
+    with JOBS_LOCK:
+        for job in JOBS.values():
+            if job.status != "done" or not job.category:
+                continue
+            cats.setdefault(job.category, []).append(job.scale)
+    return {
+        cat: {"avg_scale": round(sum(scales) / len(scales), 3), "count": len(scales)}
+        for cat, scales in cats.items()
+    }
 
 # -- variant jobs --
 
