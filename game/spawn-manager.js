@@ -125,6 +125,14 @@ function _pickDescriptor(tier) {
 }
 
 async function _spawnCreature(description, options) {
+  // Persist disposition + npcId into spriteCache so future reuses carry them
+  if (options.disposition && options.disposition !== 'hostile') {
+    const existing = spriteCache.get(description);
+    if (existing) {
+      existing.disposition = options.disposition;
+      existing.npcId = options.npcId ?? null;
+    }
+  }
   if (spriteCache.has(description)) {
     spawnFromExistingSprite(description, options);
   } else {
@@ -152,7 +160,11 @@ async function _populate(theme, level, rosterMode = false) {
     const position = new THREE.Vector3(wx, 0, wz);
 
     if (tile === endTile) {
-      spawnPlan.push({ description: theme.boss?.name ?? 'dungeon guardian', tier: 5, isBoss: true, position });
+      spawnPlan.push({
+        description: theme.boss?.name ?? 'dungeon guardian',
+        tier: 5, isBoss: true, position,
+        disposition: 'hostile', npcId: null,
+      });
       continue;
     }
 
@@ -167,21 +179,29 @@ async function _populate(theme, level, rosterMode = false) {
     const creature = candidates[Math.floor(Math.random() * candidates.length)];
     // In roster mode, creature.name IS the full prompt — skip the tier descriptor
     const description = rosterMode ? creature.name : `${_pickDescriptor(tier)} ${creature.name}`;
-    spawnPlan.push({ description, tier, isBoss: false, position });
+    spawnPlan.push({
+      description, tier, isBoss: false, position,
+      disposition: creature.disposition ?? 'hostile',
+      npcId: creature.npc_id ?? null,
+    });
   }
 
   // Render one instance of each unique description; reuse for duplicates
   for (const plan of spawnPlan) {
+    const opts = {
+      tier: plan.tier, isBoss: plan.isBoss, position: plan.position,
+      disposition: plan.disposition ?? 'hostile',
+      npcId: plan.npcId ?? null,
+    };
     if (!seen.has(plan.description)) {
       seen.add(plan.description);
-      await _spawnCreature(plan.description, { tier: plan.tier, isBoss: plan.isBoss, position: plan.position });
+      await _spawnCreature(plan.description, opts);
       // Stagger unique renders to avoid overwhelming the queue
       if (!spriteCache.has(plan.description)) {
         await new Promise(r => setTimeout(r, 400));
       }
     } else {
-      // Duplicate — reuse cache or fall back to a new render if cache not ready
-      await _spawnCreature(plan.description, { tier: plan.tier, isBoss: plan.isBoss, position: plan.position });
+      await _spawnCreature(plan.description, opts);
     }
   }
 }

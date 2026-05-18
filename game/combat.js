@@ -179,6 +179,7 @@ export function meleeAttack() {
   for (const e of sprites.values()) {
     if (e.status !== 'done' || !e.mesh || e.mesh.userData.isPlaceholder) continue;
     if (e.aiState === 'dead' || e.aiState === 'destroyed' || !e.stats) continue;
+    if (e.disposition === 'friendly') continue;  // can't attack friendly NPCs
     const d = playerPos.distanceTo(e.mesh.position);
     if (d < nearestDist) { nearest = e; nearestDist = d; }
   }

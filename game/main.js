@@ -55,6 +55,8 @@ import {
 } from './entity.js';
 import { initSpawnManager, setSpawnDensity } from './spawn-manager.js';
 import { initWeapon, setWeaponType, hideWeapon, showWeapon } from './weapon.js';
+import { initInteraction, tickInteraction, closeInteractionMenu } from './interaction.js';
+import { initDialogue, tickDialogue } from './dialogue.js';
 import {
   openLibraryPanel, closeLibraryPanel,
   openEntities, closeEntities,
@@ -194,6 +196,7 @@ function _spawnLevelEntities(exp) {
 function returnToForge() {
   setAppMode('forge');
   hideWeapon();
+  try { closeInteractionMenu(); } catch (_) {}
   if (controls.isLocked) controls.unlock();
   unloadTriggers();
   resetWorldState();
@@ -971,6 +974,8 @@ function tick() {
   } else {
     updateMovement(dt);
     updateEntities(dt);
+    tickInteraction();
+    tickDialogue(dt);
     updateWorldItems(t);
     updateProjectiles(dt);
     updateDecals(t);
@@ -1029,4 +1034,6 @@ applyIcons();
 initActionBar();
 initSpawnManager();
 try { initWeapon(); } catch (_) {}
+try { initInteraction(); } catch (_) {}
+try { initDialogue(); } catch (_) {}
 initProfile();
