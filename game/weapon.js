@@ -18,24 +18,24 @@ let _weaponType = null;
 let _animLocked = false;
 
 export function initWeapon() {
-  hudEl.dataset.visible = 'false';
+  if (hudEl) hudEl.dataset.visible = 'false';
 }
 
 // Show a weapon type's sprite in the HUD.
 // wt: weapon type object from GET /weapon-types, or null to hide.
 export function setWeaponType(wt) {
   _weaponType = wt;
+  if (!hudEl) return;
   if (!wt) {
     hudEl.dataset.visible = 'false';
     return;
   }
-  if (wt.sprite_name) {
+  if (wt.sprite_name && imgEl) {
     imgEl.src = `${FORGE_BASE}/sprites/${wt.sprite_name}`;
     imgEl.style.display = '';
     hudEl.dataset.placeholder = 'false';
   } else {
-    imgEl.src = '';
-    imgEl.style.display = 'none';
+    if (imgEl) { imgEl.src = ''; imgEl.style.display = 'none'; }
     hudEl.dataset.placeholder = 'true';
   }
   hudEl.dataset.visible = 'true';
@@ -44,7 +44,7 @@ export function setWeaponType(wt) {
 // Refresh the sprite URL for the currently held weapon type
 // (called after a weapon render job completes).
 export function refreshWeaponSprite(spriteName) {
-  if (!_weaponType) return;
+  if (!_weaponType || !imgEl || !hudEl) return;
   _weaponType.sprite_name = spriteName;
   imgEl.src = `${FORGE_BASE}/sprites/${spriteName}`;
   imgEl.style.display = '';
@@ -62,11 +62,11 @@ export function triggerWeaponAttack() {
 }
 
 function _onAnimEnd() {
-  delete hudEl.dataset.attacking;
+  if (hudEl) delete hudEl.dataset.attacking;
   _animLocked = false;
 }
 
-export function showWeapon() { hudEl.dataset.visible = 'true'; }
-export function hideWeapon() { hudEl.dataset.visible = 'false'; }
+export function showWeapon() { if (hudEl) hudEl.dataset.visible = 'true'; }
+export function hideWeapon() { if (hudEl) hudEl.dataset.visible = 'false'; }
 
 export function getWeaponType() { return _weaponType; }
