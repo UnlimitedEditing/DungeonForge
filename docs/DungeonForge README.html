@@ -1,0 +1,1567 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DungeonForge — pre-alpha · README</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=VT323&family=Press+Start+2P&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   DUNGEONFORGE :: README
+   single-page, README-density, amber phosphor + stone
+   ============================================================ */
+:root {
+  --bg:           #07060a;
+  --bg-deep:      #000;
+  --bg-card:      #0c0a06;
+  --bg-card-2:    #050300;
+  --stone:        #1a1208;
+  --amber:        #d99a2b;
+  --amber-hot:    #ffc04a;
+  --amber-molten: #ff9040;
+  --amber-dim:    #6a4a18;
+  --amber-glow:   rgba(217,154,43,0.55);
+  --blood:        #8b1a1a;
+  --blood-hot:    #c93636;
+  --rust:         #4a2818;
+  --rust-light:   #6a3820;
+  --bone:         #d8c6a0;
+  --bone-dim:     #8a7a58;
+  --steel:        #2a2620;
+  --rivet:        #5a4a30;
+  --rivet-shadow: #1a1208;
+  --scanline:     rgba(0,0,0,0.55);
+  --ok:           #6ad96a;
+  --warn:         #ffb04a;
+  --violet:       #9b6cff;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg-deep);
+  color: var(--bone);
+  font-family: 'VT323', 'Courier New', monospace;
+  font-size: 20px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse 1100px 700px at 50% -10%, rgba(255,120,30,0.10), transparent 60%),
+    radial-gradient(ellipse 800px 600px at 100% 20%, rgba(155,108,255,0.05), transparent 60%),
+    var(--bg-deep);
+  overflow-x: hidden;
+  text-wrap: pretty;
+}
+
+a { color: var(--amber); text-decoration: none; border-bottom: 1px dotted var(--amber-dim); transition: color 100ms, border-color 100ms; }
+a:hover { color: var(--amber-hot); border-bottom-color: var(--amber-hot); }
+
+/* type families */
+.mono { font-family: 'JetBrains Mono', 'Courier New', monospace; }
+.pixel { font-family: 'Press Start 2P', monospace; }
+.crt { font-family: 'VT323', monospace; }
+
+/* CRT scanlines + vignette */
+.crt-overlay {
+  position: fixed; inset: 0; pointer-events: none; z-index: 300;
+  background-image:
+    repeating-linear-gradient(to bottom, transparent 0, transparent 2px, var(--scanline) 3px, transparent 4px),
+    radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.65) 100%);
+  mix-blend-mode: multiply;
+}
+
+/* ============================================================
+   REPO-CHROME TOPBAR (GitHub-ish, but forged)
+   ============================================================ */
+.repobar {
+  position: sticky; top: 0; z-index: 200;
+  background: linear-gradient(180deg, #100c06 0%, #07050a 100%);
+  border-bottom: 1px solid var(--rust);
+}
+.repobar-inner {
+  max-width: 1160px; margin: 0 auto;
+  display: flex; align-items: center; gap: 18px;
+  padding: 10px 24px;
+  flex-wrap: wrap;
+}
+.repo-path {
+  display: flex; align-items: center; gap: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  color: var(--bone-dim);
+}
+.repo-path .sigil {
+  width: 22px; height: 22px;
+  display: grid; place-items: center;
+  border: 1px solid var(--amber-dim);
+  color: var(--amber-hot);
+  font-size: 14px;
+  box-shadow: inset 0 0 6px rgba(217,154,43,0.25), 0 0 6px rgba(217,154,43,0.18);
+}
+.repo-path .owner { color: var(--bone); }
+.repo-path .slash { color: var(--amber-dim); }
+.repo-path .name {
+  color: var(--amber-hot); font-weight: 700;
+  text-shadow: 0 0 8px var(--amber-glow);
+}
+.repo-badges {
+  display: flex; gap: 6px; align-items: center; margin-left: 6px;
+}
+.repo-badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--rust);
+  color: var(--bone-dim);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.repo-badge.warn {
+  color: #ffd28a;
+  border-color: var(--warn);
+  background: rgba(255,176,74,0.06);
+}
+.repo-spacer { flex: 1; }
+.repo-actions {
+  display: flex; gap: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+.repo-actions .btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--rust);
+  background: linear-gradient(180deg, #1a1208 0%, #0a0604 100%);
+  color: var(--bone);
+  cursor: pointer;
+  border-bottom: 1px solid var(--rust);
+}
+.repo-actions .btn:hover { border-color: var(--amber-dim); color: var(--amber-hot); }
+.repo-actions .btn .count {
+  color: var(--bone-dim); padding-left: 8px; border-left: 1px solid var(--rust);
+}
+.repo-actions .btn.primary {
+  background: linear-gradient(180deg, #d97520, #8a3c0a);
+  color: #1a0a02; border-color: #2a0e02; font-weight: 700;
+  text-shadow: 0 1px 0 rgba(255,220,160,0.4);
+}
+.repo-actions .btn.primary:hover { filter: brightness(1.1); color: #1a0a02; }
+
+/* file-tabs row */
+.repo-tabs {
+  border-bottom: 1px solid var(--rust);
+  background: #08060a;
+}
+.repo-tabs-inner {
+  max-width: 1160px; margin: 0 auto;
+  display: flex; gap: 4px;
+  padding: 0 24px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+.repo-tab {
+  padding: 10px 14px;
+  color: var(--bone-dim);
+  border-bottom: 2px solid transparent;
+  display: inline-flex; align-items: center; gap: 8px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.repo-tab:hover { color: var(--bone); }
+.repo-tab.active {
+  color: var(--amber-hot);
+  border-bottom-color: var(--amber-hot);
+  background: rgba(217,154,43,0.04);
+}
+.repo-tab .num {
+  font-size: 10px; color: var(--bone-dim);
+  padding: 1px 6px; border: 1px solid var(--rust);
+}
+
+/* ============================================================
+   PAGE WRAPPER
+   ============================================================ */
+.page {
+  max-width: 1160px; margin: 0 auto;
+  padding: 36px 24px 80px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 40px;
+  align-items: start;
+}
+
+@media (max-width: 940px) {
+  .page { grid-template-columns: 1fr; }
+  .sidebar { order: -1; }
+}
+
+/* ============================================================
+   README-FILE CARD (left column)
+   ============================================================ */
+.readme {
+  border: 1px solid var(--rust);
+  background: linear-gradient(180deg, #0c0a06 0%, #07050a 100%);
+  box-shadow: inset 0 0 60px rgba(0,0,0,0.5);
+}
+
+.readme-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--rust);
+  background: #0a0804;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: var(--bone-dim);
+}
+.readme-head .icon {
+  color: var(--amber); font-size: 16px;
+}
+.readme-head .filename { color: var(--bone); font-weight: 700; }
+.readme-head .meta { margin-left: auto; color: var(--bone-dim); font-size: 11px; }
+
+.readme-body { padding: 38px 44px 48px; }
+
+@media (max-width: 700px) {
+  .readme-body { padding: 28px 22px 36px; }
+}
+
+/* ----- typography for README content ----- */
+.readme-body h1, .readme-body h2, .readme-body h3 {
+  font-family: 'Press Start 2P', monospace;
+  color: var(--amber-hot);
+  text-shadow: 0 0 12px var(--amber-glow);
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+}
+.readme-body h1 {
+  font-size: 38px;
+  line-height: 1.05;
+  text-shadow:
+    0 0 4px var(--amber-hot),
+    0 0 18px rgba(255,144,64,0.55),
+    0 0 60px rgba(255,80,10,0.3);
+  margin-bottom: 4px;
+}
+.readme-body h1 .small {
+  display: block;
+  font-size: 12px;
+  color: var(--amber);
+  letter-spacing: 0.14em;
+  margin-top: 14px;
+  text-shadow: 0 0 8px var(--amber-glow);
+}
+.readme-body h2 {
+  font-size: 18px;
+  margin-top: 56px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rust);
+  color: var(--amber);
+}
+.readme-body h2 .hash {
+  color: var(--amber-dim); margin-right: 10px;
+}
+.readme-body h3 {
+  font-size: 12px;
+  margin-top: 28px;
+  margin-bottom: 10px;
+  color: var(--amber);
+  letter-spacing: 0.1em;
+}
+.readme-body p {
+  font-size: 20px;
+  color: var(--bone);
+  line-height: 1.55;
+  margin: 12px 0;
+  max-width: 64ch;
+}
+.readme-body p em {
+  color: var(--amber-hot);
+  font-style: normal;
+  text-shadow: 0 0 8px var(--amber-glow);
+}
+.readme-body p strong { color: var(--amber); font-weight: 700; }
+.readme-body code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  padding: 2px 6px;
+  background: rgba(255,144,64,0.08);
+  border: 1px solid var(--rust);
+  color: #ffd28a;
+}
+.readme-body ul {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  max-width: 64ch;
+}
+.readme-body ul li {
+  padding-left: 22px;
+  position: relative;
+  color: var(--bone);
+  font-size: 19px;
+  line-height: 1.5;
+}
+.readme-body ul li::before {
+  content: '▸';
+  position: absolute; left: 0; top: 0;
+  color: var(--amber);
+}
+.readme-body ul li strong { color: var(--amber); font-weight: 700; }
+
+/* ----- inline tag chips ----- */
+.tag {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  border: 1px solid var(--rust);
+  color: var(--bone-dim);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.tag.warn { color: #ffd28a; border-color: var(--warn); background: rgba(255,176,74,0.06); }
+.tag.ok   { color: var(--ok); border-color: var(--ok); background: rgba(106,217,106,0.05); }
+.tag.bad  { color: var(--blood-hot); border-color: var(--blood); background: rgba(139,26,26,0.1); }
+.tag.dim  { color: var(--bone-dim); }
+
+/* ============================================================
+   HERO BLOCK INSIDE README
+   ============================================================ */
+.hero-block {
+  margin-bottom: 18px;
+}
+.hero-tagline {
+  font-size: 22px;
+  color: var(--bone);
+  margin-top: 18px;
+  max-width: 50ch;
+}
+.hero-tagline em {
+  color: var(--amber-hot);
+  font-style: normal;
+  text-shadow: 0 0 8px var(--amber-glow);
+}
+.hero-row {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  margin-top: 22px;
+  align-items: center;
+}
+.shield {
+  display: inline-flex; align-items: stretch;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  border: 1px solid var(--rust);
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.shield .k {
+  padding: 4px 8px; background: #0a0804; color: var(--bone-dim);
+  border-right: 1px solid var(--rust);
+}
+.shield .v { padding: 4px 8px; color: var(--bone); }
+.shield.warn .v { background: rgba(255,176,74,0.1); color: #ffd28a; }
+.shield.bad .v { background: rgba(139,26,26,0.15); color: var(--blood-hot); }
+.shield.ok .v { background: rgba(106,217,106,0.08); color: var(--ok); }
+.shield.amber .v { background: rgba(217,154,43,0.1); color: var(--amber-hot); }
+.shield.violet .v { background: rgba(155,108,255,0.1); color: var(--violet); }
+
+/* ============================================================
+   PLAY-FREE ARCADE CTA (top of README)
+   ============================================================ */
+.play-free {
+  margin: 30px 0 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 24px 26px 26px;
+  border: 1px solid var(--amber-dim);
+  background:
+    radial-gradient(ellipse 600px 240px at 100% 50%, rgba(255,144,64,0.14), transparent 70%),
+    linear-gradient(180deg, #140d05 0%, #07050a 100%);
+  box-shadow: inset 0 0 30px rgba(217,154,43,0.08), 0 0 18px rgba(217,154,43,0.1);
+  position: relative;
+  overflow: hidden;
+}
+.play-free::before {
+  content: ''; position: absolute;
+  top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--amber-hot) 30%, var(--amber-hot) 70%, transparent);
+  box-shadow: 0 0 14px var(--amber-glow);
+}
+.play-free-copy { width: 100%; }
+.play-free-eyebrow {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px; letter-spacing: 0.18em;
+  color: var(--amber-dim);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.play-free-eyebrow::before {
+  content: ''; width: 22px; height: 1px; background: var(--amber-dim);
+}
+.play-free-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 15px;
+  line-height: 1.35;
+  letter-spacing: 0.04em;
+  color: var(--amber-hot);
+  text-shadow: 0 0 12px var(--amber-glow);
+  margin-bottom: 8px;
+  max-width: 36ch;
+}
+.play-free-sub {
+  font-size: 17px;
+  color: var(--bone);
+  line-height: 1.5;
+  max-width: 56ch;
+}
+.play-free-sub code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  padding: 1px 6px;
+  background: rgba(255,144,64,0.08);
+  border: 1px solid var(--rust);
+  color: #ffd28a;
+}
+.play-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  width: 100%;
+  padding: 22px 28px;
+  margin-top: 4px;
+  background: linear-gradient(180deg, #ffb04a 0%, #d97520 50%, #8a3c0a 100%);
+  color: #1a0a02;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  border: 2px solid #2a0e02;
+  border-bottom: 2px solid #2a0e02;
+  box-shadow:
+    inset 0 2px 0 rgba(255,220,160,0.5),
+    inset 0 -3px 0 rgba(0,0,0,0.4),
+    0 0 0 4px var(--steel),
+    0 0 0 5px #1a1208,
+    0 0 50px rgba(255,144,64,0.5),
+    0 7px 0 #2a0e02,
+    0 9px 22px rgba(0,0,0,0.65);
+  cursor: pointer;
+  transition: transform 90ms ease, box-shadow 120ms ease, filter 120ms ease;
+  text-shadow: 0 1px 0 rgba(255,220,160,0.4);
+}
+.play-btn:hover {
+  filter: brightness(1.1);
+  color: #1a0a02;
+  border-bottom: 2px solid #2a0e02;
+  box-shadow:
+    inset 0 2px 0 rgba(255,230,180,0.6),
+    inset 0 -3px 0 rgba(0,0,0,0.45),
+    0 0 0 4px var(--steel),
+    0 0 0 5px #1a1208,
+    0 0 58px rgba(255,160,80,0.9),
+    0 7px 0 #2a0e02,
+    0 10px 28px rgba(0,0,0,0.7);
+}
+.play-btn:active {
+  transform: translateY(5px);
+  box-shadow:
+    inset 0 2px 0 rgba(255,220,160,0.5),
+    inset 0 -3px 0 rgba(0,0,0,0.4),
+    0 0 0 4px var(--steel),
+    0 0 0 5px #1a1208,
+    0 0 30px rgba(255,144,64,0.5),
+    0 2px 0 #2a0e02;
+}
+.play-btn-arrow {
+  width: 32px; height: 32px;
+  display: grid; place-items: center;
+  background: #2a0e02;
+  color: var(--amber-hot);
+  border: 2px solid #1a0a02;
+  font-size: 14px;
+  box-shadow: inset 0 0 6px rgba(0,0,0,0.6), 0 0 8px rgba(255,160,80,0.5);
+  flex-shrink: 0;
+}
+.play-btn-label {
+  display: flex; flex-direction: column; gap: 7px;
+  align-items: flex-start;
+  text-align: left;
+}
+.play-btn-label .big { font-size: 20px; line-height: 1; }
+.play-btn-label .small {
+  font-size: 8px; letter-spacing: 0.18em;
+  color: rgba(26,10,2,0.78);
+  line-height: 1;
+}
+.play-btn::before, .play-btn::after {
+  content: ''; position: absolute;
+  width: 5px; height: 5px; border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #ffd58a, #5a2a08 70%);
+  box-shadow: 0 0 0 1px #1a0a02;
+}
+.play-btn::before { top: 8px; left: 10px; }
+.play-btn::after  { bottom: 8px; right: 10px; }
+
+@media (max-width: 480px) {
+  .play-btn { padding: 18px 20px; gap: 14px; }
+  .play-btn-label .big { font-size: 15px; }
+  .play-btn-label .small { font-size: 7px; }
+  .play-free-title { font-size: 13px; }
+}
+
+/* ============================================================
+   PRE-ALPHA WARNING PANEL
+   ============================================================ */
+.warn-panel {
+  margin: 38px 0 0;
+  border: 2px solid var(--warn);
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(255,176,74,0.03) 0 12px,
+      rgba(255,176,74,0.06) 12px 24px
+    ),
+    rgba(255,176,74,0.04);
+  padding: 22px 26px 24px;
+  position: relative;
+  box-shadow: 0 0 20px rgba(255,176,74,0.12), inset 0 0 30px rgba(255,176,74,0.04);
+}
+.warn-panel::before {
+  content: ''; position: absolute;
+  inset: 0;
+  border: 1px dashed rgba(255,176,74,0.3);
+  pointer-events: none;
+}
+.warn-stripe {
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 6px;
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--warn) 0 12px,
+    #1a0a02 12px 24px
+  );
+}
+.warn-panel-head {
+  display: flex; align-items: center; gap: 12px;
+  margin-top: 6px;
+  margin-bottom: 12px;
+}
+.warn-glyph {
+  width: 28px; height: 28px;
+  background: var(--warn);
+  color: #1a0a02;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 14px;
+  display: grid; place-items: center;
+  border: 1px solid #1a0a02;
+  font-weight: 700;
+  box-shadow: 0 0 12px rgba(255,176,74,0.55);
+}
+.warn-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 14px;
+  color: #ffd28a;
+  letter-spacing: 0.14em;
+  text-shadow: 0 0 10px rgba(255,176,74,0.5);
+}
+.warn-panel p {
+  color: var(--bone);
+  font-size: 20px;
+  margin: 10px 0;
+  max-width: 64ch;
+}
+.warn-panel p strong { color: #ffd28a; }
+.warn-panel p em { color: var(--warn); font-style: normal; }
+.warn-panel .stamp {
+  position: absolute;
+  top: 14px; right: 18px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  color: var(--warn);
+  border: 1px solid var(--warn);
+  padding: 6px 10px;
+  background: rgba(255,176,74,0.06);
+  letter-spacing: 0.18em;
+  transform: rotate(2deg);
+}
+
+@media (max-width: 600px) {
+  .warn-panel .stamp { position: static; transform: none; margin-bottom: 10px; display: inline-block; }
+}
+
+/* ============================================================
+   THE VISION GRID  (what it's meant to become)
+   ============================================================ */
+.vision-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 12px;
+}
+@media (max-width: 700px) { .vision-grid { grid-template-columns: 1fr; } }
+.vision-cell {
+  border: 1px solid var(--rust);
+  background: linear-gradient(180deg, #0c0a06 0%, #050300 100%);
+  padding: 18px 18px 20px;
+  position: relative;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.vision-cell::before {
+  content: ''; position: absolute;
+  top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, var(--amber-hot), transparent 75%);
+}
+.vision-num {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px; letter-spacing: 0.14em;
+  color: var(--amber-dim);
+}
+.vision-name {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 12px;
+  color: var(--amber-hot);
+  text-shadow: 0 0 10px var(--amber-glow);
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+}
+.vision-body { font-size: 18px; color: var(--bone); line-height: 1.5; }
+.vision-body strong { color: var(--amber); font-weight: 700; }
+
+/* ============================================================
+   STATUS TABLE — what works / what breaks
+   ============================================================ */
+.status-tbl {
+  border: 1px solid var(--rust);
+  background: #050300;
+  margin-top: 12px;
+}
+.status-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 130px;
+  align-items: center;
+  border-bottom: 1px solid var(--rust);
+  padding: 12px 16px;
+  gap: 14px;
+}
+.status-row:last-child { border-bottom: none; }
+.status-row:hover { background: rgba(255,144,64,0.03); }
+.status-state {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  text-align: center;
+  border: 1px solid;
+}
+.status-state.works  { color: var(--ok); border-color: var(--ok); background: rgba(106,217,106,0.05); }
+.status-state.wobbly { color: var(--warn); border-color: var(--warn); background: rgba(255,176,74,0.05); }
+.status-state.broken { color: var(--blood-hot); border-color: var(--blood); background: rgba(139,26,26,0.1); }
+.status-state.todo   { color: var(--bone-dim); border-color: var(--rust); }
+.status-name { color: var(--bone); font-size: 19px; }
+.status-name small {
+  display: block; font-size: 14px; color: var(--bone-dim); line-height: 1.3; margin-top: 1px;
+}
+.status-cat {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--bone-dim);
+  letter-spacing: 0.08em;
+  text-align: right;
+  text-transform: uppercase;
+}
+
+@media (max-width: 600px) {
+  .status-row { grid-template-columns: 80px 1fr; }
+  .status-cat { grid-column: 2; text-align: left; padding-top: 2px; }
+}
+
+/* ============================================================
+   HOW-TO-HELP / SPECTATE PAIR
+   ============================================================ */
+.help-pair {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 14px;
+  margin-top: 12px;
+}
+@media (max-width: 700px) { .help-pair { grid-template-columns: 1fr; } }
+.help-card {
+  border: 1px solid var(--rust);
+  padding: 22px 22px 24px;
+  display: flex; flex-direction: column; gap: 10px;
+  position: relative;
+}
+.help-card.join {
+  background:
+    radial-gradient(ellipse 400px 200px at 100% 0%, rgba(255,144,64,0.08), transparent 70%),
+    linear-gradient(180deg, #100a04 0%, #07050a 100%);
+  border-color: var(--amber-dim);
+  box-shadow: inset 0 0 30px rgba(217,154,43,0.05), 0 0 18px rgba(217,154,43,0.08);
+}
+.help-card.watch {
+  background: linear-gradient(180deg, #08060a 0%, #050300 100%);
+  border-style: dashed;
+}
+.help-pill {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  padding: 4px 8px;
+  display: inline-block;
+  width: max-content;
+  border: 1px solid;
+}
+.help-card.join .help-pill { color: var(--amber-hot); border-color: var(--amber); background: rgba(217,154,43,0.06); }
+.help-card.watch .help-pill { color: var(--violet); border-color: var(--violet); background: rgba(155,108,255,0.05); }
+.help-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  margin-top: 6px;
+}
+.help-card.join .help-title { color: var(--amber-hot); text-shadow: 0 0 10px var(--amber-glow); }
+.help-card.watch .help-title { color: var(--bone); }
+.help-body { font-size: 18px; color: var(--bone); line-height: 1.55; }
+.help-body strong { color: var(--amber); font-weight: 700; }
+.help-list {
+  list-style: none; display: grid; gap: 6px;
+  margin-top: 6px;
+}
+.help-list li {
+  position: relative; padding-left: 20px;
+  font-size: 18px; color: var(--bone); line-height: 1.45;
+}
+.help-list li::before {
+  content: '▸'; position: absolute; left: 0; top: 0;
+  color: var(--amber);
+}
+.help-card.watch .help-list li::before { color: var(--violet); }
+.help-card .cta-row {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;
+}
+.cta {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  border: 1px solid var(--rust);
+  background: #0a0604;
+  color: var(--bone);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  border-bottom: 1px solid var(--rust);
+}
+.cta:hover { border-color: var(--amber-dim); color: var(--amber-hot); border-bottom: 1px solid var(--amber-dim); }
+.cta.primary {
+  background: linear-gradient(180deg, #ffb04a 0%, #d97520 50%, #8a3c0a 100%);
+  color: #1a0a02;
+  border-color: #2a0e02;
+  font-weight: 700;
+  box-shadow: inset 0 1px 0 rgba(255,220,160,0.4), 0 0 18px rgba(255,144,64,0.3);
+  text-shadow: 0 1px 0 rgba(255,220,160,0.3);
+}
+.cta.primary:hover { filter: brightness(1.08); color: #1a0a02; border-bottom: 1px solid #2a0e02; }
+.cta .arrow { color: inherit; }
+
+/* ============================================================
+   ARCHITECTURE BLOCK
+   ============================================================ */
+.arch-code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--bone);
+  background: #050300;
+  border: 1px solid var(--rust);
+  padding: 18px 20px;
+  margin-top: 14px;
+  overflow-x: auto;
+  white-space: pre;
+}
+.arch-code .c-amber { color: var(--amber-hot); }
+.arch-code .c-dim { color: var(--bone-dim); }
+.arch-code .c-violet { color: var(--violet); }
+
+.systems-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-top: 14px;
+}
+@media (max-width: 700px) { .systems-grid { grid-template-columns: 1fr; } }
+.system {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 10px;
+  align-items: baseline;
+  padding: 10px 12px;
+  border: 1px solid var(--rust);
+  background: rgba(0,0,0,0.4);
+  font-size: 17px;
+}
+.system .num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--amber-dim);
+}
+.system strong { color: var(--amber); font-weight: 700; }
+.system small { display: block; color: var(--bone-dim); font-size: 14px; line-height: 1.4; margin-top: 2px; }
+
+/* ============================================================
+   GET-STARTED CODE BLOCK
+   ============================================================ */
+.code-block {
+  margin-top: 14px;
+  background: #050300;
+  border: 1px solid var(--rust);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  position: relative;
+}
+.code-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--rust);
+  background: #0a0604;
+  font-size: 11px;
+  color: var(--bone-dim);
+  letter-spacing: 0.06em;
+}
+.code-head .lang { color: var(--amber); }
+.code-head .copy { color: var(--bone-dim); cursor: pointer; }
+.code-head .copy:hover { color: var(--amber-hot); }
+.code-body {
+  padding: 14px 18px;
+  overflow-x: auto;
+  white-space: pre;
+  color: var(--bone);
+}
+.code-body .c-amber { color: var(--amber-hot); }
+.code-body .c-dim { color: var(--bone-dim); }
+.code-body .c-violet { color: var(--violet); }
+.code-body .c-ok { color: var(--ok); }
+
+/* ============================================================
+   FAQ / Q&A
+   ============================================================ */
+.qa { display: grid; gap: 14px; margin-top: 14px; }
+.qa-item {
+  border-left: 2px solid var(--amber-dim);
+  padding: 4px 16px 4px 18px;
+}
+.qa-q {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--amber-hot);
+  margin-bottom: 8px;
+  text-shadow: 0 0 6px var(--amber-glow);
+}
+.qa-a { color: var(--bone); font-size: 19px; line-height: 1.5; max-width: 64ch; }
+.qa-a em { color: var(--amber); font-style: normal; }
+
+/* ============================================================
+   SIDEBAR (right column)
+   ============================================================ */
+.sidebar { display: grid; gap: 18px; position: sticky; top: 78px; }
+@media (max-width: 940px) { .sidebar { position: static; } }
+
+.side-card {
+  border: 1px solid var(--rust);
+  background: linear-gradient(180deg, #0a0804 0%, #050300 100%);
+  padding: 16px 16px 18px;
+}
+.side-card-head {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--bone-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rust);
+  display: flex; justify-content: space-between;
+}
+.side-card-head .right { color: var(--amber-dim); }
+
+/* about */
+.side-about p {
+  font-size: 17px; color: var(--bone); line-height: 1.5;
+  margin-bottom: 12px;
+}
+.side-about .links {
+  display: grid; gap: 6px;
+  font-family: 'JetBrains Mono', monospace; font-size: 12px;
+}
+.side-about .links a {
+  border-bottom: none;
+  color: var(--amber);
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.side-about .links a:hover { color: var(--amber-hot); }
+
+/* topics */
+.topics { display: flex; flex-wrap: wrap; gap: 5px; }
+.topic {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  padding: 3px 10px;
+  border: 1px solid var(--rust);
+  background: rgba(217,154,43,0.04);
+  color: var(--amber);
+  border-radius: 0;
+  letter-spacing: 0.04em;
+}
+
+/* status side */
+.side-stat-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 6px 0;
+  border-bottom: 1px dashed rgba(74,40,24,0.6);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--bone-dim);
+  letter-spacing: 0.04em;
+}
+.side-stat-row:last-child { border-bottom: none; }
+.side-stat-row .v { color: var(--bone); }
+.side-stat-row .v.warn { color: var(--warn); }
+.side-stat-row .v.ok { color: var(--ok); }
+.side-stat-row .v.amber { color: var(--amber-hot); }
+
+/* TOC */
+.toc { display: grid; gap: 2px; }
+.toc a {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-left: 2px solid transparent;
+  color: var(--bone-dim);
+  border-bottom: none;
+  letter-spacing: 0.04em;
+}
+.toc a:hover { color: var(--amber-hot); border-left-color: var(--amber-dim); background: rgba(255,144,64,0.03); }
+
+/* live render mini */
+.render-mini {
+  border: 1px solid var(--amber-dim);
+  background:
+    radial-gradient(ellipse at center, #1a0a02 0%, #050200 70%, #000 100%);
+  padding: 12px;
+  position: relative;
+  overflow: hidden;
+  font-family: 'JetBrains Mono', monospace;
+}
+.render-mini::after {
+  content: ''; position: absolute; inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 2px, rgba(0,0,0,0.4) 3px, transparent 4px);
+}
+.render-mini .label {
+  font-size: 10px; color: var(--amber-dim); letter-spacing: 0.1em;
+  margin-bottom: 6px;
+  display: flex; justify-content: space-between;
+}
+.render-mini .label .dot {
+  width: 6px; height: 6px; background: var(--ok); border-radius: 50%;
+  display: inline-block; margin-right: 4px; box-shadow: 0 0 6px var(--ok);
+  animation: blink 1.6s steps(2) infinite;
+}
+.render-mini .name {
+  font-family: 'VT323', monospace;
+  font-size: 18px; color: var(--amber-hot);
+  margin-bottom: 4px;
+}
+.render-mini .prog {
+  height: 4px; background: var(--rust);
+  position: relative; overflow: hidden;
+  margin-top: 8px;
+}
+.render-mini .prog span {
+  position: absolute; top: 0; left: 0; bottom: 0;
+  width: 62%;
+  background: linear-gradient(90deg, var(--amber-molten), var(--amber-hot));
+  box-shadow: 0 0 10px var(--amber-glow);
+}
+.render-mini .meta {
+  font-family: 'VT323', monospace;
+  font-size: 14px; color: var(--bone-dim);
+  display: flex; justify-content: space-between;
+  margin-top: 4px;
+}
+
+@keyframes blink { 50% { opacity: 0.35; } }
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+.footer {
+  border-top: 1px solid var(--rust);
+  background: var(--bg-deep);
+  margin-top: 30px;
+}
+.footer-inner {
+  max-width: 1160px; margin: 0 auto;
+  padding: 22px 24px;
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 30px; flex-wrap: wrap;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--bone-dim);
+  letter-spacing: 0.04em;
+}
+.footer-inner .right { display: flex; gap: 14px; }
+.footer-inner a { color: var(--amber); border-bottom: none; }
+.footer-inner a:hover { color: var(--amber-hot); }
+
+/* ============================================================
+   embers
+   ============================================================ */
+.embers { position: fixed; inset: 0; pointer-events: none; z-index: 1; }
+.ember {
+  position: absolute;
+  width: 3px; height: 3px;
+  background: var(--amber-hot);
+  border-radius: 50%;
+  box-shadow: 0 0 6px var(--amber-hot), 0 0 12px rgba(255,144,64,0.5);
+  opacity: 0;
+  animation: ember-float linear infinite;
+}
+@keyframes ember-float {
+  0%   { transform: translate(0,0) scale(1);   opacity: 0; }
+  10%  { opacity: 0.8; }
+  100% { transform: translate(var(--dx, 0), -100vh) scale(0.4); opacity: 0; }
+}
+</style>
+</head>
+<body>
+
+<div class="crt-overlay"></div>
+<div class="embers" id="embers"></div>
+
+<!-- ==================== REPO TOPBAR ==================== -->
+<header class="repobar">
+  <div class="repobar-inner">
+    <div class="repo-path">
+      <div class="sigil">◈</div>
+      <a class="owner" href="https://github.com/UnlimitedEditing" target="_blank" rel="noopener" style="border-bottom:none">UnlimitedEditing</a>
+      <span class="slash">/</span>
+      <a class="name" href="https://github.com/UnlimitedEditing/DungeonForge" target="_blank" rel="noopener" style="border-bottom:none">DungeonForge</a>
+    </div>
+    <div class="repo-badges">
+      <span class="repo-badge warn">pre-alpha</span>
+      <span class="repo-badge">public</span>
+      <span class="repo-badge">main</span>
+    </div>
+    <div class="repo-spacer"></div>
+    <div class="repo-actions">
+      <a class="btn" href="https://github.com/UnlimitedEditing/DungeonForge" target="_blank" rel="noopener">☆ Star</a>
+      <a class="btn" href="https://github.com/UnlimitedEditing/DungeonForge/fork" target="_blank" rel="noopener">⑂ Fork</a>
+      <a class="btn primary" href="https://graydient.ai?ref=yjyynzu" target="_blank" rel="noopener">▶ Play free</a>
+    </div>
+  </div>
+  <div class="repo-tabs">
+    <div class="repo-tabs-inner">
+      <div class="repo-tab active">▤ README</div>
+      <div class="repo-tab">⬡ Code</div>
+      <div class="repo-tab">⚠ Issues <span class="num">∞</span></div>
+      <div class="repo-tab">⑂ Pull requests <span class="num">0</span></div>
+      <div class="repo-tab">⚙ Actions</div>
+      <div class="repo-tab">📜 Wiki</div>
+    </div>
+  </div>
+</header>
+
+<!-- ==================== PAGE ==================== -->
+<div class="page">
+
+  <!-- ============================== README CARD ============================== -->
+  <main class="readme">
+
+    <div class="readme-head">
+      <span class="icon">▤</span>
+      <span class="filename">README.md</span>
+      <span class="meta">last forged · today · ~6 min read</span>
+    </div>
+
+    <div class="readme-body">
+
+      <!-- ====================== HERO ====================== -->
+      <section class="hero-block" id="top">
+        <h1>
+          DungeonForge
+          <span class="small">// a game engine that generates dungeon crawlers</span>
+        </h1>
+        <p class="hero-tagline">
+          Describe a creature, weapon, or world in plain English. The engine renders it, drops it into a procedurally generated dungeon, and lets <em>everything fight</em>.
+        </p>
+
+        <div class="hero-row">
+          <span class="shield warn"><span class="k">status</span><span class="v">pre-alpha</span></span>
+          <span class="shield"><span class="k">version</span><span class="v">v0.2 — the forge</span></span>
+          <span class="shield amber"><span class="k">runtime</span><span class="v">three.js · fastapi</span></span>
+          <span class="shield violet"><span class="k">render</span><span class="v">graydient v3</span></span>
+          <span class="shield"><span class="k">license</span><span class="v">TBD</span></span>
+          <span class="shield bad"><span class="k">stability</span><span class="v">everything breaks</span></span>
+        </div>
+
+        <!-- ====== BIG PLAY-FREE CTA ====== -->
+        <a class="play-free" href="https://graydient.ai?ref=yjyynzu" target="_blank" rel="noopener" style="text-decoration:none; border-bottom:none">
+          <div class="play-free-copy">
+            <div class="play-free-eyebrow">// the render substrate</div>
+            <div class="play-free-title">DungeonForge needs a Graydient key. Get one free here.</div>
+            <div class="play-free-sub">
+              DungeonForge talks to <strong style="color:var(--amber)">Graydient</strong> for every sprite, walk-cycle, prop and dialogue line — it's the brain and the kiln. You'll still want to roll up your sleeves and wrangle <code>Python</code> to host the engine itself, but the API key is the part you can grab in 30 seconds. Free tier is enough to forge real dungeons; the <code>?ref=yjyynzu</code> on the link lets me see who came in from the README.
+            </div>
+          </div>
+          <div class="play-btn" aria-label="Sign up free at Graydient">
+            <span class="play-btn-arrow">▶</span>
+            <span class="play-btn-label">
+              <span class="big">SIGN UP FREE · GRAYDIENT</span>
+              <span class="small">// THE FORGE NEEDS A KEY — GET YOURS</span>
+            </span>
+          </div>
+        </a>
+      </section>
+
+      <!-- ====================== PRE-ALPHA WARNING ====================== -->
+      <aside class="warn-panel">
+        <div class="warn-stripe"></div>
+        <div class="stamp">PRE-ALPHA</div>
+        <div class="warn-panel-head">
+          <div class="warn-glyph">!</div>
+          <div class="warn-title">READ THIS BEFORE YOU TOUCH IT</div>
+        </div>
+        <p>
+          DungeonForge is in <strong>pre-alpha</strong>. The core gameplay loop has <em>not been vetted</em>. Subsystems exist, they wire together, and on a good day the whole thing boots — but nothing is balanced, almost everything has rough edges, and which thing snaps next is genuinely a coin flip.
+        </p>
+        <p>
+          I'm not pretending otherwise. Right now this is for <strong>two kinds of people</strong>: folks who want to <strong>render starter content</strong> and <strong>poke holes</strong> in the systems with me, and folks who want to <em>sit back, watch it develop, and join when it looks like it won't hurt them</em>. Both are valid. Pick your role below.
+        </p>
+      </aside>
+
+      <!-- ====================== WHAT IT IS ====================== -->
+      <h2 id="what-is-it"><span class="hash">##</span>What the hell is this</h2>
+      <p>
+        DungeonForge is a self-authored dungeon crawler where <strong>nothing is pre-drawn</strong>. There are no built-in sprites, no built-in items, no built-in enemies. You describe a thing in plain English — <code>"a cinder-veined wyrm with brass scales"</code> — and an AI rendering pipeline turns it into a playable sprite with walk frames, a back view, a corpse, and stats scaled to your dungeon's lore.
+      </p>
+      <p>
+        The world exists entirely in latent space until someone describes it. The engine, the render queue, and the LLM inference all run together and feed each other in real time. Rendering takes <strong>1–5 minutes per asset</strong> — that's not a bug, that's the texture of the game. You configure while it renders. You re-enter dungeons while sprites stream in. The waiting is the rhythm.
+      </p>
+
+      <!-- ====================== WHAT IT'S MEANT TO BECOME ====================== -->
+      <h2 id="vision"><span class="hash">##</span>What it's meant to become</h2>
+      <p>
+        DungeonForge is a dungeon crawler today, but the shape underneath is <em>a game engine wearing a dungeon crawler like a mask</em>. The roadmap is building toward a place where players don't just play it — they <strong>fork their own game modes from inside the Forge</strong>.
+      </p>
+
+      <div class="vision-grid">
+        <div class="vision-cell">
+          <span class="vision-num">01</span>
+          <h3 class="vision-name">A FORGE, NOT A GAME</h3>
+          <p class="vision-body">The hub is a workshop ring — <strong>Terra Fabricator</strong>, <strong>Library</strong>, <strong>Machinarium</strong>, <strong>Arcanum</strong>, <strong>Substance Lab</strong>, <strong>Undercroft</strong>. Each is a different axis of world-building, and they all feed the same render queue.</p>
+        </div>
+        <div class="vision-cell">
+          <span class="vision-num">02</span>
+          <h3 class="vision-name">EVERYTHING PLAYER-GENERATED</h3>
+          <p class="vision-body">Creatures, weapons, props, lore, NPC personalities, drop pools — all authored by description and reified by render. No shipped assets. The engine refuses to assume what your world looks like.</p>
+        </div>
+        <div class="vision-cell">
+          <span class="vision-num">03</span>
+          <h3 class="vision-name">EXPERIENCES, FORKABLE</h3>
+          <p class="vision-body">A whole dungeon — lore, rules, rosters, triggers — is a single <strong>experience JSON</strong> doc. <code>EXP:</code> share codes encode the entire world to base64. <code>.dpack</code> bundles ship with sprites included.</p>
+        </div>
+        <div class="vision-cell">
+          <span class="vision-num">04</span>
+          <h3 class="vision-name">NEW GAME MODES, INDEFINITELY</h3>
+          <p class="vision-body">Past the dungeon-crawl, an <strong>isometric overworld</strong> view opens up RTS-shaped play. Past that, the engine stays open — the substrate is designed to keep accepting new modes without rewriting.</p>
+        </div>
+      </div>
+
+      <!-- ====================== CURRENT STATUS ====================== -->
+      <h2 id="status"><span class="hash">##</span>What works (and what doesn't)</h2>
+      <p>
+        Real talk on the state of the table. <span class="tag ok">works</span> means it's there and reliable enough to lean on. <span class="tag warn">wobbly</span> means it works most of the time but you'll hit edges. <span class="tag bad">breaks</span> means it's known-bad and on the list. <span class="tag dim">todo</span> means it's scaffolded but not real yet.
+      </p>
+
+      <div class="status-tbl">
+        <div class="status-row">
+          <span class="status-state works">WORKS</span>
+          <div class="status-name">Procedural dungeon generation<small>Seeded drunk-walk, infinite levels, BFS exit placement.</small></div>
+          <span class="status-cat">level</span>
+        </div>
+        <div class="status-row">
+          <span class="status-state works">WORKS</span>
+          <div class="status-name">AI sprite pipeline<small>txt2img → rembg cutout → scene-lit billboards. Slow, but reliable.</small></div>
+          <span class="status-cat">render</span>
+        </div>
+        <div class="status-row">
+          <span class="status-state works">WORKS</span>
+          <div class="status-name">Profile / API-key encryption<small>bcrypt + Fernet. Session keys in memory only.</small></div>
+          <span class="status-cat">meta</span>
+        </div>
+        <div class="status-row">
+          <span class="status-state wobbly">WOBBLY</span>
+          <div class="status-name">Walk / back / corpse variant rendering<small>Pose-keyed sprite sheets. Sometimes the pose drifts. Often fine.</small></div>
+          <span class="status-cat">render</span>
+        </div>
+        <div class="status-row">
+          <span class="status-state wobbly">WOBBLY</span>
+          <div class="status-name">Combat balance<small>HP, XP, levelling — all wired. Numbers are <em>vibes</em>, not tuned.</small></div>
+          <span class="status-cat">combat</span>
+        </div>
+        <div class="status-row">
+          <span class="status-state wobbly">WOBBLY</span>
+          <div class="status-name">Dungeon-theme LLM inference<small>Produces good rosters most of the time. Occasionally hallucinates clowns into a crypt.</small></div>
+          <span class="status-cat">llm</span>
+        </div>
+        <div class="status-row">
+          <span class="status-state wobbly">WOBBLY</span>
+          <div class="status-name">NPC dialogue<small>Works. Choices appear. Memory across conversation is shallow.</small></div>
+          <span class="status-cat">npc</span>
+        </div>
+        <div class="status-row">
+          <span class="status-state broken">BREAKS</span>
+          <div class="status-name">Stale SSE event reconciliation<small>Mostly handled by render-hash dedup. <em>Mostly.</em></small></div>
+          <span class="status-cat">infra</span>
+        </div>
+        <div class="status-row">
+          <span class="status-state broken">BREAKS</span>
+          <div class="status-name">Sprite floor-clip on extreme scales<small>Tall bosses sometimes float. Tiny props sometimes sink.</small></div>
+          <span class="status-cat">render</span>
+        </div>
+        <div class="status-row">
+          <span class="status-state broken">BREAKS</span>
+          <div class="status-name">Long-session memory<small>Hours-long play sessions leak. Restart the server. Sorry.</small></div>
+          <span class="status-cat">infra</span>
+        </div>
+        <div class="status-row">
+          <span class="status-state todo">TODO</span>
+          <div class="status-name">Weapon-sprite hitboxes<small>Coming in M1 — collision against the actual alpha of the rendered sprite.</small></div>
+          <span class="status-cat">combat</span>
+        </div>
+        <div class="status-row">
+          <span class="status-state todo">TODO</span>
+          <div class="status-name">Skills / status effects<small>Cooldowns, poison, stun, slow. Queued after weapon combat.</small></div>
+          <span class="status-cat">combat</span>
+        </div>
+        <div class="status-row">
+          <span class="status-state todo">TODO</span>
+          <div class="status-name">Merchant trading<small>NPC menu has a TRADE button. It is, candidly, a button.</small></div>
+          <span class="status-cat">npc</span>
+        </div>
+        <div class="status-row">
+          <span class="status-state todo">TODO</span>
+          <div class="status-name">Isometric overworld<small>A second view type. Travel between dungeons. The RTS door.</small></div>
+          <span class="status-cat">world</span>
+        </div>
+      </div>
+
+      <!-- ====================== HOW TO HELP ====================== -->
+      <h2 id="help"><span class="hash">##</span>How you can help (or, you know, don't)</h2>
+      <p>
+        Two roles. Pick honestly — both are useful and neither is wrong.
+      </p>
+
+      <div class="help-pair">
+        <!-- JOIN -->
+        <div class="help-card join">
+          <span class="help-pill">// ROLE A · STRIKE THE ANVIL</span>
+          <h3 class="help-title">Render content. Find what breaks.</h3>
+          <p class="help-body">
+            If you like getting your hands dirty, this is where I need you. The fastest way to push DungeonForge forward right now is to <strong>actually run it</strong> and try to make worlds. Whatever you render becomes seed material for the starter content other people will land on.
+          </p>
+          <ul class="help-list">
+            <li><strong>Render creatures, props, weapons.</strong> Throw weird prompts at it. The render queue gets stronger when it sees variety.</li>
+            <li><strong>Author experiences.</strong> Write the lore, define a roster, build triggers. Share <code>EXP:</code> codes and <code>.dpack</code> bundles back.</li>
+            <li><strong>File issues for everything.</strong> Bad sprite, weird AI roam, dialogue loop, sprite floating off the floor — open it. Screenshots and seeds preferred.</li>
+            <li><strong>Tell me what's confusing.</strong> The Forge hub has six workshops. If a workshop's purpose isn't obvious in 30 seconds, that's a bug.</li>
+          </ul>
+          <div class="cta-row">
+            <a class="cta primary" href="https://github.com/UnlimitedEditing/DungeonForge" target="_blank" rel="noopener"><span class="arrow">▶</span> Get the code</a>
+            <a class="cta" href="https://github.com/UnlimitedEditing/DungeonForge/issues/new" target="_blank" rel="noopener">↗ File an issue</a>
+            <a class="cta" href="https://t.me/UnlimitedEditing" target="_blank" rel="noopener">↗ DM @UnlimitedEditing</a>
+          </div>
+        </div>
+
+        <!-- WATCH -->
+        <div class="help-card watch">
+          <span class="help-pill">// ROLE B · WATCH FROM THE PARAPET</span>
+          <h3 class="help-title">Sit back. Watch it develop.</h3>
+          <p class="help-body">
+            If you just want to see where this goes, that is <em>completely fine</em>. DungeonForge is solo-developed and the surface area is large — it makes sense to wait until the loop firms up before jumping in.
+          </p>
+          <ul class="help-list">
+            <li><strong>Star / watch the repo.</strong> That's it. That's the whole ask.</li>
+            <li><strong>Read the dev log.</strong> I write about what shipped, what I broke, and why.</li>
+            <li><strong>Come back when alpha lands.</strong> Stuff will be tuned. Loops will be vetted. It will not hurt you.</li>
+          </ul>
+          <div class="cta-row">
+            <a class="cta" href="https://github.com/UnlimitedEditing/DungeonForge" target="_blank" rel="noopener">☆ Watch the repo</a>
+            <a class="cta" href="https://t.me/UnlimitedEditing" target="_blank" rel="noopener">↗ Telegram</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====================== ARCHITECTURE ====================== -->
+      <h2 id="architecture"><span class="hash">##</span>Architecture, briefly</h2>
+      <p>
+        Two processes. No build step. The browser resolves ES modules natively via an import map.
+      </p>
+
+      <div class="arch-code"><span class="c-dim">┌─────────────────────────────────────────────────────┐</span>
+<span class="c-dim">│</span>  <span class="c-amber">Browser</span> · Three.js ES modules                       <span class="c-dim">│</span>
+<span class="c-dim">│</span>  game/main.js  ←→  game/*.js modules                <span class="c-dim">│</span>
+<span class="c-dim">│</span>         ↑  fetch / SSE / polling                    <span class="c-dim">│</span>
+<span class="c-dim">└─────────────────────────────────────────────────────┘</span>
+                         │
+<span class="c-dim">┌─────────────────────────────────────────────────────┐</span>
+<span class="c-dim">│</span>  <span class="c-amber">Python · FastAPI</span> · forge.py                       <span class="c-dim">│</span>
+<span class="c-dim">│</span>  – job queues (sprite, variant, weapon, rotation)   <span class="c-dim">│</span>
+<span class="c-dim">│</span>  – Graydient HTTP client                            <span class="c-dim">│</span>
+<span class="c-dim">│</span>  – profile store (bcrypt + Fernet)                  <span class="c-dim">│</span>
+<span class="c-dim">│</span>  – runtime config · NPC cards · triggers            <span class="c-dim">│</span>
+<span class="c-dim">└─────────────────────────────────────────────────────┘</span>
+                         │
+             <span class="c-violet">Graydient v3 API</span> · txt2img / img2vid / LLM</div>
+
+      <h3>The twenty subsystems</h3>
+      <div class="systems-grid">
+        <div class="system"><span class="num">01</span><div><strong>Architecture</strong><small>Two-process · 4 workers · render-hash dedup</small></div></div>
+        <div class="system"><span class="num">02</span><div><strong>Scenes &amp; game loop</strong><small>Forge hub vs. dungeon room · per-tick pipeline</small></div></div>
+        <div class="system"><span class="num">03</span><div><strong>Profiles &amp; session security</strong><small>bcrypt + Fernet · in-memory session keys</small></div></div>
+        <div class="system"><span class="num">04</span><div><strong>Runtime config</strong><small>Live-reload from <code>config.json</code> · no restart</small></div></div>
+        <div class="system"><span class="num">05</span><div><strong>Rendering pipeline</strong><small>Sprite · variant · rotation · weapon jobs</small></div></div>
+        <div class="system"><span class="num">06</span><div><strong>Entity system</strong><small>spriteCache · AI states · disposition</small></div></div>
+        <div class="system"><span class="num">07</span><div><strong>Combat</strong><small>Melee + ranged · XP · levels · loot</small></div></div>
+        <div class="system"><span class="num">08</span><div><strong>Level system</strong><small>Tile graph · BFS · geometry · lighting</small></div></div>
+        <div class="system"><span class="num">09</span><div><strong>Lore engine</strong><small>Scaffolds · archetypes · prompt modifiers</small></div></div>
+        <div class="system"><span class="num">10</span><div><strong>Spawn manager</strong><small>Free mode · roster mode · sprite reuse</small></div></div>
+        <div class="system"><span class="num">11</span><div><strong>World state &amp; triggers</strong><small>Flags · counters · event hooks</small></div></div>
+        <div class="system"><span class="num">12</span><div><strong>Experience system</strong><small>JSON · forks · share codes · <code>.dpack</code></small></div></div>
+        <div class="system"><span class="num">13</span><div><strong>NPCs &amp; dialogue</strong><small>Disposition · radial menu · LLM dialogue</small></div></div>
+        <div class="system"><span class="num">14</span><div><strong>Weapons</strong><small>Type templates + render jobs</small></div></div>
+        <div class="system"><span class="num">15</span><div><strong>Hub panels</strong><small>Eight workshops in the Forge ring</small></div></div>
+        <div class="system"><span class="num">16</span><div><strong>Scale system</strong><small>Human-relative · category averaging</small></div></div>
+        <div class="system"><span class="num">17</span><div><strong>Dev console</strong><small>Backtick overlay · pluggable commands</small></div></div>
+        <div class="system"><span class="num">18</span><div><strong>HUD &amp; UI layers</strong><small>z-indexed bezels · minimap · weapon HUD</small></div></div>
+        <div class="system"><span class="num">19</span><div><strong>Event bus</strong><small>Pub/sub across modules</small></div></div>
+        <div class="system"><span class="num">20</span><div><strong>Invariants</strong><small>Render slot · hash dedup · session key safety</small></div></div>
+      </div>
+
+      <p style="margin-top:18px">
+        Full subsystem reference lives in <a href="https://github.com/UnlimitedEditing/DungeonForge/blob/main/DESIGN.md" target="_blank" rel="noopener">DESIGN.md</a> — 419 lines, exhaustive, occasionally even accurate.
+      </p>
+
+      <!-- ====================== GET STARTED ====================== -->
+      <h2 id="get-started"><span class="hash">##</span>Get started</h2>
+      <p>
+        You host your own instance. You bring a Graydient API key. The launcher does the rest.
+      </p>
+
+      <h3>Prerequisites</h3>
+      <ul>
+        <li><strong>Python 3.11+</strong> with <code>pip</code></li>
+        <li>A modern <strong>Chromium-based browser</strong> (Three.js + ES modules + ImageBitmap)</li>
+        <li>A <strong>Graydient v3 API key</strong> — txt2img, img2vid, and LLM access</li>
+        <li>Patience for <strong>1–5 min</strong> per first-time render. (Subsequent renders cache.)</li>
+      </ul>
+
+      <h3>Quickstart</h3>
+      <div class="code-block">
+        <div class="code-head">
+          <span><span class="lang">bash</span> · clone, install, launch</span>
+          <span class="copy">⎘ copy</span>
+        </div>
+<div class="code-body"><span class="c-dim"># clone</span>
+git clone https://github.com/UnlimitedEditing/DungeonForge
+<span class="c-amber">cd</span> DungeonForge
+
+<span class="c-dim"># install</span>
+pip install -r requirements.txt
+
+<span class="c-dim"># launch (tkinter cross-platform launcher)</span>
+python launcher.py
+<span class="c-dim">  → create a profile</span>
+<span class="c-dim">  → paste your Graydient API key (Fernet-encrypted on disk)</span>
+<span class="c-dim">  → click START</span>
+
+<span class="c-dim"># …or run the server directly</span>
+uvicorn forge:app --reload --port <span class="c-ok">8000</span>
+<span class="c-dim"># then visit</span>
+http://localhost:<span class="c-ok">8000</span></div>
+      </div>
+
+      <p style="margin-top:14px">
+        First boot, the Forge hub will be empty. That's correct. Open the <strong>Library</strong>, write some lore, and start a dungeon. The first render takes a minute or two — that's the texture of the game.
+      </p>
+
+      <!-- ====================== FAQ ====================== -->
+      <h2 id="faq"><span class="hash">##</span>Pre-emptive Q&amp;A</h2>
+      <div class="qa">
+        <div class="qa-item">
+          <div class="qa-q">Q : Is this a product?</div>
+          <div class="qa-a">No. It's a pre-alpha solo-dev project. I'm not selling anything. There's no roadmap to monetisation. It might never reach 1.0.</div>
+        </div>
+        <div class="qa-item">
+          <div class="qa-q">Q : Why is rendering so slow?</div>
+          <div class="qa-a">Because real generation takes real time. The whole game is designed around <em>configure-while-it-renders</em>. The slowness is the texture, not the friction.</div>
+        </div>
+        <div class="qa-item">
+          <div class="qa-q">Q : Can I run it without Graydient?</div>
+          <div class="qa-a">Not today. The render substrate is deliberately not backend-agnostic — that complexity isn't a fight I'm picking in pre-alpha. Maybe later.</div>
+        </div>
+        <div class="qa-item">
+          <div class="qa-q">Q : Is my API key safe?</div>
+          <div class="qa-a">Your password is bcrypt-hashed. Your API key is Fernet-encrypted at rest with a PBKDF2-derived key. The decrypted key only ever lives in the server's in-memory session map and is lost on restart. I don't log it. I don't cache it.</div>
+        </div>
+        <div class="qa-item">
+          <div class="qa-q">Q : Will my experiences survive an update?</div>
+          <div class="qa-a">Probably. Experiences are JSON and the schema is stable enough for forking. But this is pre-alpha — if the schema needs to evolve, it will, and I'll write migrations when I can.</div>
+        </div>
+        <div class="qa-item">
+          <div class="qa-q">Q : Can I contribute code?</div>
+          <div class="qa-a">Not the priority right now. The system is still finding its shape and PRs against a moving target are painful for everyone. <em>Issues</em>, however, are gold.</div>
+        </div>
+      </div>
+
+      <!-- ====================== CLOSING ====================== -->
+      <h2 id="closing"><span class="hash">##</span>One more thing</h2>
+      <p>
+        DungeonForge is the project I needed an excuse to build. It's slow, it's strange, it occasionally produces a wyrm with too many legs, and watching the first sprite of a dungeon resolve out of latent noise is genuinely one of my favourite feelings.
+      </p>
+      <p>
+        If that sounds like a thing you'd enjoy holding a torch for — <em>welcome to the forge</em>. If not, file is your cue to close the tab. No hard feelings.
+      </p>
+
+    </div>
+  </main>
+
+  <!-- ============================== SIDEBAR ============================== -->
+  <aside class="sidebar">
+
+    <!-- About -->
+    <div class="side-card side-about">
+      <div class="side-card-head"><span>About</span><span class="right">▾</span></div>
+      <p>
+        A game engine that generates dungeon crawlers from plain-English prompts. Three.js + FastAPI + Graydient. Solo-developed. Pre-alpha.
+      </p>
+      <div class="topics">
+        <span class="topic">three.js</span>
+        <span class="topic">fastapi</span>
+        <span class="topic">generative-ai</span>
+        <span class="topic">dungeon-crawler</span>
+        <span class="topic">game-engine</span>
+        <span class="topic">latent-space</span>
+        <span class="topic">solo-dev</span>
+      </div>
+      <div class="links" style="margin-top:14px">
+        <a href="https://github.com/UnlimitedEditing/DungeonForge/blob/main/DESIGN.md" target="_blank" rel="noopener">▤ DESIGN.md — system reference</a>
+        <a href="https://graydient.ai?ref=yjyynzu" target="_blank" rel="noopener">▶ Play free · graydient.ai</a>
+        <a href="https://t.me/UnlimitedEditing" target="_blank" rel="noopener">↗ Telegram · @UnlimitedEditing</a>
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div class="side-card">
+      <div class="side-card-head"><span>Status</span><span class="right">live</span></div>
+      <div class="side-stat-row"><span>phase</span><span class="v warn">pre-alpha</span></div>
+      <div class="side-stat-row"><span>version</span><span class="v amber">v0.2</span></div>
+      <div class="side-stat-row"><span>milestone</span><span class="v">M1 · weapons</span></div>
+      <div class="side-stat-row"><span>shipped systems</span><span class="v ok">19</span></div>
+      <div class="side-stat-row"><span>workshops wired</span><span class="v ok">6 / 8</span></div>
+      <div class="side-stat-row"><span>render p50</span><span class="v">~2m 10s</span></div>
+      <div class="side-stat-row"><span>loop vetted</span><span class="v" style="color:var(--blood-hot)">no</span></div>
+    </div>
+
+    <!-- Live render preview -->
+    <div class="side-card" style="padding:0">
+      <div class="side-card-head" style="margin:0; padding:12px 16px"><span>Render queue</span><span class="right">SSE</span></div>
+      <div style="padding:12px 16px 14px">
+        <div class="render-mini">
+          <div class="label"><span><span class="dot"></span>RENDERING</span><span>02:14</span></div>
+          <div class="name">cinder-veined wyrm</div>
+          <div class="prog"><span></span></div>
+          <div class="meta"><span>txt2img · sprite</span><span>62%</span></div>
+        </div>
+        <div class="render-mini" style="margin-top:10px">
+          <div class="label"><span style="color:var(--amber-dim)">QUEUED</span><span>—</span></div>
+          <div class="name" style="color:var(--amber)">brass-thurible acolyte</div>
+          <div class="prog"><span style="width:0; background:var(--rust); box-shadow:none"></span></div>
+          <div class="meta"><span>variant · walk</span><span>waiting</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TOC -->
+    <div class="side-card">
+      <div class="side-card-head"><span>On this page</span><span class="right">▾</span></div>
+      <nav class="toc">
+        <a href="#what-is-it">› What the hell is this</a>
+        <a href="#vision">› What it's meant to become</a>
+        <a href="#status">› What works (and what doesn't)</a>
+        <a href="#help">› How you can help</a>
+        <a href="#architecture">› Architecture, briefly</a>
+        <a href="#get-started">› Get started</a>
+        <a href="#faq">› Pre-emptive Q&amp;A</a>
+        <a href="#closing">› One more thing</a>
+      </nav>
+    </div>
+
+  </aside>
+
+</div>
+
+<!-- ==================== FOOTER ==================== -->
+<footer class="footer">
+  <div class="footer-inner">
+    <div>◈ DUNGEONFORGE · pre-alpha · solo-dev · forged by <a href="https://t.me/UnlimitedEditing" target="_blank" rel="noopener">@UnlimitedEditing</a></div>
+    <div class="right">
+      <a href="https://github.com/UnlimitedEditing/DungeonForge" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/UnlimitedEditing/DungeonForge/blob/main/DESIGN.md" target="_blank" rel="noopener">DESIGN.md</a>
+      <a href="https://github.com/UnlimitedEditing/DungeonForge/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://t.me/UnlimitedEditing" target="_blank" rel="noopener">Telegram</a>
+      <a href="#top">↑ top</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+// embers
+(function () {
+  const root = document.getElementById('embers');
+  if (!root) return;
+  const N = 28;
+  for (let i = 0; i < N; i++) {
+    const e = document.createElement('div');
+    e.className = 'ember';
+    const left = Math.random() * 100;
+    const dur = 8 + Math.random() * 14;
+    const delay = -Math.random() * dur;
+    const dx = (Math.random() * 80 - 40) + 'px';
+    const size = 2 + Math.random() * 3;
+    e.style.left = left + 'vw';
+    e.style.bottom = (-10 - Math.random() * 30) + 'px';
+    e.style.width = size + 'px';
+    e.style.height = size + 'px';
+    e.style.animationDuration = dur + 's';
+    e.style.animationDelay = delay + 's';
+    e.style.setProperty('--dx', dx);
+    root.appendChild(e);
+  }
+})();
+</script>
+
+</body>
+</html>
