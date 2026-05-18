@@ -253,6 +253,20 @@
     </div>
   </div>
 
+  <!-- Dev console: toggled with backtick. -->
+  <div id="dev-console" data-open="false">
+    <div id="dev-console-header">
+      <span class="dev-console-title">&#9654; DEV CONSOLE</span>
+      <span class="dev-console-hint">&#96; toggle &nbsp;|&nbsp; ESC close &nbsp;|&nbsp; &#8593;&#8595; history</span>
+    </div>
+    <div id="dev-console-output"></div>
+    <div id="dev-console-input-row">
+      <span class="dev-console-caret">&gt;</span>
+      <input id="dev-console-input" type="text" autocomplete="off" spellcheck="false"
+             placeholder="type a command…" />
+    </div>
+  </div>
+
   <!-- Minimap: shown during gameplay. -->
   <div id="minimap" data-visible="false">
     <canvas id="minimap-canvas" width="160" height="160"></canvas>

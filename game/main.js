@@ -58,6 +58,10 @@ import { initWeapon, setWeaponType, hideWeapon, showWeapon } from './weapon.js';
 import { initInteraction, tickInteraction, closeInteractionMenu } from './interaction.js';
 import { initDialogue, tickDialogue } from './dialogue.js';
 import {
+  initConsole, isConsoleOpen, toggleConsole,
+  registerCommand, log as conLog,
+} from './console.js';
+import {
   openLibraryPanel, closeLibraryPanel,
   openEntities, closeEntities,
   openPoseEditor, closePoseEditor,
@@ -612,7 +616,27 @@ document.getElementById('viewport').addEventListener('click', () => {
   if (terminal.dataset.open === 'true' && setupScreen.dataset.active !== 'true') controls.lock();
 });
 
+const _hudEl = document.getElementById('hud');
+function _toggleAdminHud() {
+  const hidden = _hudEl?.dataset.adminHidden === 'true';
+  if (_hudEl) _hudEl.dataset.adminHidden = hidden ? 'false' : 'true';
+  document.body.classList.toggle('admin-hud-hidden', !hidden);
+}
+
 window.addEventListener('keydown', (e) => {
+  if (e.code === 'Backquote') {
+    e.preventDefault();
+    toggleConsole();
+    return;
+  }
+  // Suppress all game keys while console is open (console input handles its own Escape)
+  if (isConsoleOpen()) return;
+
+  if (e.code === 'F1') {
+    e.preventDefault();
+    _toggleAdminHud();
+    return;
+  }
   if (e.code === 'Tab') {
     e.preventDefault();
     if (setupScreen.dataset.active === 'true' || appMode !== 'room') return;
@@ -1114,10 +1138,142 @@ async function applyIcons() {
   } catch (_) {}
 }
 
+// ─────────────────────────────────────────────
+// DEV CONSOLE COMMANDS
+// ─────────────────────────────────────────────
+
+function _initConsoleCommands() {
+  // ── spawn ────────────────────────────────────
+  registerCommand('spawn', '<prompt> [prop|npc] — spawn entity/prop/friendly NPC', (args) => {
+    if (!args.length) { conLog('usage: spawn <prompt> [prop|npc]', 'warn'); return; }
+    let jobType = _spawnMode;
+    let opts    = {};
+    let parts   = [...args];
+    const last  = parts[parts.length - 1].toLowerCase();
+    if (last === 'prop')  { jobType = 'prop';   parts = parts.slice(0, -1); }
+    if (last === 'npc')   { jobType = 'entity'; opts.disposition = 'friendly'; parts = parts.slice(0, -1); }
+    const prompt = parts.join(' ');
+    spawnFromPrompt(prompt, jobType, opts);
+    conLog(`queued ${jobType}: ${prompt}`, 'success');
+  });
+
+  // ── entities ─────────────────────────────────
+  registerCommand('ents', '— list all live entities', () => {
+    const live = [...sprites.values()].filter(e => e.status !== undefined);
+    if (!live.length) { conLog('no entities', 'muted'); return; }
+    conLog(`── ${live.length} entities ──────────────────────────────`, 'muted');
+    for (const e of live) {
+      const hp  = e.stats ? `${e.stats.hp}/${e.stats.maxHp}hp` : 'no stats';
+      const pos = e.position ? `(${e.position.x.toFixed(1)},${e.position.z.toFixed(1)})` : '';
+      conLog(`  ${e.jobId.slice(0, 10).padEnd(11)} ${(e.aiState ?? e.status ?? '?').padEnd(10)} ${hp.padEnd(12)} ${(e.prompt ?? '').slice(0, 28)} ${pos}`, 'info');
+    }
+  });
+
+  // ── kill ─────────────────────────────────────
+  registerCommand('kill', '<id|all> — kill entity by id prefix, or all hostile entities', (args) => {
+    if (!args[0]) { conLog('usage: kill <id|all>', 'warn'); return; }
+    if (args[0].toLowerCase() === 'all') {
+      let n = 0;
+      for (const e of sprites.values()) {
+        if (e.aiState === 'dead' || e.aiState === 'destroyed' || e.aiState === 'static') continue;
+        killEntity(e); n++;
+      }
+      conLog(`killed ${n} entities`, 'success');
+      return;
+    }
+    const prefix = args[0].toLowerCase();
+    const match  = [...sprites.values()].find(e => e.jobId.toLowerCase().startsWith(prefix));
+    if (!match) { conLog(`no entity matching: ${prefix}`, 'error'); return; }
+    killEntity(match);
+    conLog(`killed: ${match.jobId} (${match.prompt})`, 'success');
+  });
+
+  // ── hp ───────────────────────────────────────
+  registerCommand('hp', '[n|+n|-n] — show or set/adjust player HP', (args) => {
+    if (!args[0]) {
+      conLog(`player HP: ${player.hp} / ${player.maxHp}`, 'info');
+      return;
+    }
+    const raw = args[0];
+    if (raw.startsWith('+')) {
+      player.hp = Math.min(player.maxHp, player.hp + parseInt(raw.slice(1), 10));
+    } else if (raw.startsWith('-')) {
+      player.hp = Math.max(0, player.hp - parseInt(raw.slice(1), 10));
+    } else {
+      player.hp = Math.max(0, Math.min(player.maxHp, parseInt(raw, 10)));
+    }
+    updatePlayerHud();
+    conLog(`HP → ${player.hp}/${player.maxHp}`, 'success');
+  });
+
+  // ── maxhp ────────────────────────────────────
+  registerCommand('maxhp', '<n> — set player max HP (and restore to full)', (args) => {
+    const n = parseInt(args[0], 10);
+    if (!n || n < 1) { conLog('usage: maxhp <n>', 'warn'); return; }
+    player.maxHp = n; player.hp = n;
+    updatePlayerHud();
+    conLog(`max HP → ${n}`, 'success');
+  });
+
+  // ── xp ───────────────────────────────────────
+  registerCommand('xp', '<n> — give player XP (triggers level-up if threshold met)', (args) => {
+    const n = parseInt(args[0], 10);
+    if (!n || n < 1) { conLog('usage: xp <n>', 'warn'); return; }
+    gainXp(n);
+    conLog(`+${n} XP (level ${player.level}, ${player.xp}/${player.xpToNext})`, 'success');
+  });
+
+  // ── god ──────────────────────────────────────
+  let _savedDefense = null;
+  registerCommand('god', '— toggle god mode (defense → 9999)', () => {
+    if (_savedDefense === null) {
+      _savedDefense  = player.defense;
+      player.defense = 9999;
+      conLog('god mode ON  (defense = 9999)', 'success');
+    } else {
+      player.defense = _savedDefense;
+      _savedDefense  = null;
+      conLog('god mode OFF', 'info');
+    }
+  });
+
+  // ── pos ──────────────────────────────────────
+  registerCommand('pos', '— print player position', () => {
+    const p = player.position ?? controls.object?.position;
+    if (!p) { conLog('position unavailable', 'warn'); return; }
+    conLog(`x=${p.x.toFixed(3)}  y=${p.y.toFixed(3)}  z=${p.z.toFixed(3)}`, 'info');
+  });
+
+  // ── items ────────────────────────────────────
+  registerCommand('items', '— list world items on the floor', () => {
+    const its = [...worldItems.values()];
+    if (!its.length) { conLog('no items on the floor', 'muted'); return; }
+    conLog(`── ${its.length} items ────────────────────────────────────`, 'muted');
+    for (const it of its) {
+      conLog(`  ${(it.id ?? '?').slice(0, 10).padEnd(11)} ${it.name ?? '?'}`, 'info');
+    }
+  });
+
+  // ── scaffold ─────────────────────────────────
+  registerCommand('scaffold', '— show current lore scaffold/theme', () => {
+    const sc = getActivePromptModifier();
+    if (!sc) { conLog('no active scaffold', 'muted'); return; }
+    conLog(sc, 'info');
+  });
+
+  // ── reload ───────────────────────────────────
+  registerCommand('reload', '— reload game config from server', async () => {
+    await applyGameConfig();
+    conLog('config reloaded', 'success');
+  });
+}
+
 applyIcons();
 initActionBar();
 initSpawnManager();
+initConsole();
 try { initWeapon(); } catch (_) {}
 try { initInteraction(); } catch (_) {}
 try { initDialogue(); } catch (_) {}
+_initConsoleCommands();
 initProfile();
