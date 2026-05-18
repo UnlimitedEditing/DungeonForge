@@ -230,7 +230,13 @@ export async function spawnFromPrompt(promptText, jobType = 'entity', options = 
 
   const position    = options.position ?? nextSpawn();
   const placeholder = makePlaceholder(position);
-  sprites.set(job.id, { jobId: job.id, status: job.status, mesh: placeholder, position, prompt: promptText, floorY: 1.1, roam: null, isBoss: options.isBoss ?? false, tier: options.tier ?? 1 });
+  sprites.set(job.id, {
+    jobId: job.id, status: job.status, mesh: placeholder, position,
+    prompt: promptText, floorY: 1.1, roam: null,
+    isBoss: options.isBoss ?? false, tier: options.tier ?? 1,
+    disposition: options.disposition ?? 'hostile',
+    npcId: options.npcId ?? null,
+  });
   if (options.isBoss) setBossEntityId(job.id);
   refreshJobList();
   pollJob(job.id);
@@ -252,6 +258,8 @@ export function spawnFromExistingSprite(description, options = {}) {
     jobId: fakeId, status: 'loading', mesh: placeholder,
     position, prompt: description, floorY: 1.1, roam: null,
     isBoss, tier, stats, aiState: stats ? 'roam' : null, lastAttackTime: 0,
+    disposition: options.disposition ?? cached.disposition ?? 'hostile',
+    npcId: options.npcId ?? cached.npcId ?? null,
   };
   sprites.set(fakeId, entry);
   if (isBoss) setBossEntityId(fakeId);
@@ -561,7 +569,10 @@ export function updateEntities(dt) {
     if (e.stats) {
       const distToPlayer = playerPos.distanceTo(e.mesh.position);
 
-      if (e.aiState !== 'agro' && distToPlayer < liveAgroRange) {
+      // Only hostile entities initiate aggro; friendly/neutral always stay in roam
+      const isHostile = !e.disposition || e.disposition === 'hostile';
+
+      if (isHostile && e.aiState !== 'agro' && distToPlayer < liveAgroRange) {
         e.aiState = 'agro';
       } else if (e.aiState === 'agro' && distToPlayer > liveAgroRange * 1.6) {
         e.aiState = 'roam';

@@ -17,6 +17,14 @@ export const EVENTS = {
   SYSTEM_DISABLED: 'system:disabled',
   DUNGEON_THEME_READY: 'dungeon:theme_ready',
   BOSS_DIED: 'boss:died',
+  // NPC interaction & dialogue
+  INTERACTION_START: 'npc:interaction_start',
+  INTERACTION_END:   'npc:interaction_end',
+  DIALOGUE_START:    'npc:dialogue_start',
+  DIALOGUE_END:      'npc:dialogue_end',
+  DIALOGUE_CHOICE:   'npc:dialogue_choice',
+  NPC_FLAG_SET:      'npc:flag_set',
+  NPC_RELATIONSHIP:  'npc:relationship_changed',
 };
 
 const _listeners = {};

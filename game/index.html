@@ -481,6 +481,38 @@
     <div id="combat-feed-lines"></div>
   </div>
 
+  <!-- Interact prompt: floats in centre-bottom when near a friendly NPC. -->
+  <div id="interact-prompt" data-visible="false">
+    <span class="interact-key">E</span>
+    <span class="interact-label">INTERACT</span>
+  </div>
+
+  <!-- Interaction menu: CHAT / TRADE / QUEST radial. -->
+  <div id="interaction-menu" data-open="false">
+    <div class="interact-menu-name" id="interact-menu-name">Stranger</div>
+    <div class="interact-menu-options">
+      <button class="interact-option-btn" data-action="chat">CHAT</button>
+      <button class="interact-option-btn" data-action="trade">TRADE</button>
+      <button class="interact-option-btn" data-action="quest">QUEST</button>
+    </div>
+    <div class="interact-menu-stub muted" id="interact-menu-stub" style="display:none"></div>
+    <div class="interact-menu-hint muted">ESC to close</div>
+  </div>
+
+  <!-- Dialogue panel: portrait + speech + forked choices. -->
+  <div id="dialogue-panel" data-open="false">
+    <button id="dialogue-close-btn" title="Close (Esc)">✕</button>
+    <div class="dialogue-portrait-wrap">
+      <img id="dialogue-portrait" alt="" draggable="false" />
+    </div>
+    <div class="dialogue-body">
+      <div class="dialogue-npc-name" id="dialogue-npc-name">—</div>
+      <div class="dialogue-speech" id="dialogue-speech"></div>
+      <div class="dialogue-choices" id="dialogue-choices"></div>
+      <div class="dialogue-status muted" id="dialogue-status"></div>
+    </div>
+  </div>
+
   <!-- Weapon HUD: 2D overlay sprite, bottom-right. Animated on attack. -->
   <div id="weapon-hud" data-visible="false" data-placeholder="false">
     <img id="weapon-img" alt="" draggable="false" />

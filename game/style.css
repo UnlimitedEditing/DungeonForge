@@ -2093,6 +2093,202 @@ button:disabled { opacity: 0.4; cursor: wait; }
 .pose-ref-item span:last-child { color:var(--ok); }
 
 /* ====================================================================
+   INTERACT PROMPT
+   ==================================================================== */
+
+#interact-prompt {
+  position: fixed;
+  bottom: 120px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(10,8,4,0.78);
+  border: 1px solid var(--rust);
+  padding: 6px 16px;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s;
+  z-index: 60;
+}
+#interact-prompt[data-visible="true"] { opacity: 1; }
+
+.interact-key {
+  display: inline-block;
+  border: 1px solid var(--amber);
+  color: var(--amber);
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+.interact-label { color: var(--amber-dim); }
+
+/* ====================================================================
+   INTERACTION MENU
+   ==================================================================== */
+
+#interaction-menu {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 260px;
+  background: rgba(10,8,4,0.92);
+  border: 1px solid var(--rust);
+  padding: 20px 24px 16px;
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 70;
+}
+#interaction-menu[data-open="true"] { display: flex; }
+
+.interact-menu-name {
+  font-size: 16px;
+  color: var(--amber);
+  letter-spacing: 0.08em;
+  border-bottom: 1px solid var(--rust);
+  padding-bottom: 8px;
+}
+.interact-menu-options {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+.interact-option-btn {
+  flex: 1;
+  padding: 8px 0;
+  background: none;
+  border: 1px solid var(--rust);
+  color: var(--amber-dim);
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.interact-option-btn:hover {
+  background: rgba(217,154,43,0.12);
+  border-color: var(--amber);
+  color: var(--amber);
+}
+.interact-menu-stub {
+  font-size: 13px;
+  text-align: center;
+  padding: 4px 0;
+}
+.interact-menu-hint { font-size: 11px; text-align: center; }
+
+/* ====================================================================
+   DIALOGUE PANEL
+   ==================================================================== */
+
+#dialogue-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 38vh;
+  min-height: 240px;
+  max-height: 380px;
+  background: rgba(10,8,4,0.94);
+  border-top: 2px solid var(--rust);
+  display: none;
+  flex-direction: row;
+  gap: 0;
+  z-index: 80;
+}
+#dialogue-panel[data-open="true"] { display: flex; }
+
+#dialogue-close-btn {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  background: none;
+  border: none;
+  color: var(--amber-dim);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  font-family: inherit;
+  transition: color 0.12s;
+}
+#dialogue-close-btn:hover { color: var(--amber); }
+
+.dialogue-portrait-wrap {
+  width: 140px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--rust);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: rgba(30,20,8,0.6);
+}
+#dialogue-portrait {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 6px rgba(217,154,43,0.25));
+}
+
+.dialogue-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 44px 12px 20px;
+  gap: 10px;
+  overflow: hidden;
+}
+.dialogue-npc-name {
+  font-size: 15px;
+  color: var(--amber);
+  letter-spacing: 0.08em;
+  border-bottom: 1px solid var(--rust);
+  padding-bottom: 6px;
+}
+.dialogue-speech {
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.55;
+  flex-shrink: 0;
+  max-height: 80px;
+  overflow-y: auto;
+}
+.dialogue-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  flex: 1;
+}
+.dialogue-choice-btn {
+  background: none;
+  border: none;
+  color: var(--amber-dim);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  padding: 3px 6px;
+  letter-spacing: 0.04em;
+  transition: color 0.1s, background 0.1s;
+  border-radius: 2px;
+}
+.dialogue-choice-btn:hover {
+  color: var(--amber);
+  background: rgba(217,154,43,0.08);
+}
+.dialogue-choice-exit { color: var(--rust); }
+.dialogue-choice-exit:hover { color: var(--blood); background: rgba(139,26,26,0.10); }
+.dialogue-status { font-size: 12px; min-height: 14px; }
+
+/* ====================================================================
    WEAPON HUD
    ==================================================================== */
 

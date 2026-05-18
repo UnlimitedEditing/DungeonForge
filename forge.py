@@ -46,6 +46,7 @@ from rembg import remove
 
 import config
 import graydient_client
+import npcs
 import profiles
 import weapons
 
@@ -216,6 +217,25 @@ class WeaponJobRequest(BaseModel):
     profile_id: str
     weapon_type_id: str
     extra_prompt: str = ""        # appended to the weapon prompt for this render
+
+class NPCCardRequest(BaseModel):
+    id: Optional[str] = None
+    name: str
+    role: str = "dungeon dweller"
+    personality: str = "guarded and world-weary"
+    knowledge: list = []        # topics the NPC can speak about
+    secrets: list = []          # revealed only via flag-gated options
+    lore_context: str = ""      # free-form world flavour for the LLM
+    disposition: str = "friendly"
+
+class NPCDialogueRequest(BaseModel):
+    npc_id: str
+    entity_prompt: str          # fallback if no registered card
+    topic: str = "greeting"     # greeting | chat | trade | quest | farewell
+    history: list = []          # [{role: "npc"|"player", text: "..."}]
+    player_flags: dict = {}     # flag_name → True
+    world_state: dict = {}      # experience_name, dungeon_name, level, etc.
+    profile_id: str
 
 class PoseRegisterRequest(BaseModel):
     profile_id: str
@@ -1748,6 +1768,148 @@ def get_dungeon_theme(req: DungeonThemeRequest, request: Request):
 
     log.info("[dungeon-theme] generated for seed=%s exp=%s: %s", req.seed, req.experience_id, theme.get("dungeonName"))
     return theme
+
+
+# -- NPC character cards --
+
+@app.get("/npc-cards")
+def list_npc_cards():
+    return npcs.get_all()
+
+@app.get("/npc-cards/{npc_id}")
+def get_npc_card(npc_id: str):
+    card = npcs.get(npc_id)
+    if not card:
+        raise HTTPException(404, "npc card not found")
+    return card
+
+@app.post("/npc-cards")
+def create_npc_card(body: NPCCardRequest):
+    return npcs.upsert(body.model_dump())
+
+@app.put("/npc-cards/{npc_id}")
+def update_npc_card(npc_id: str, body: NPCCardRequest):
+    card = npcs.get(npc_id)
+    if not card:
+        raise HTTPException(404, "npc card not found")
+    merged = {**card, **body.model_dump(exclude_none=True), "id": npc_id}
+    return npcs.upsert(merged)
+
+@app.delete("/npc-cards/{npc_id}")
+def delete_npc_card(npc_id: str):
+    if not npcs.delete(npc_id):
+        raise HTTPException(404, "npc card not found")
+    return {"deleted": npc_id}
+
+
+# -- NPC dialogue inference --
+
+def _default_npc_card(npc_id: str, entity_prompt: str) -> dict:
+    """Generate a minimal character card from an entity prompt when no card is registered."""
+    return {
+        "id": npc_id,
+        "name": entity_prompt.title(),
+        "role": "dungeon inhabitant",
+        "personality": "cautious, world-weary, speaks plainly",
+        "knowledge": ["the dungeon", "local dangers", "survival"],
+        "secrets": [],
+        "lore_context": f"A {entity_prompt} encountered in the dungeon.",
+        "disposition": "friendly",
+    }
+
+def _build_npc_system_prompt(card: dict, world_state: dict) -> str:
+    name        = card.get("name", "Stranger")
+    role        = card.get("role", "dungeon inhabitant")
+    personality = card.get("personality", "guarded")
+    knowledge   = ", ".join(card.get("knowledge") or ["the dungeon"])
+    lore_ctx    = card.get("lore_context", "")
+    dungeon     = world_state.get("dungeon_name") or world_state.get("experience_name") or "the dungeon"
+
+    return (
+        f"You are {name}, a {role} in {dungeon}.\n"
+        f"Personality: {personality}\n"
+        f"Knowledge domains: {knowledge}\n"
+        f"Context: {lore_ctx}\n\n"
+        "You speak in character at all times. Keep responses brief and flavourful.\n"
+        "Never break character. Return ONLY valid JSON — no markdown, no code blocks.\n\n"
+        "Response format:\n"
+        '{\n'
+        '  "speech": "your dialogue (2-4 sentences, in character)",\n'
+        '  "options": [\n'
+        '    {"text": "player choice (8 words max)", "action": "chat|trade|quest|farewell", '
+        '"requires_flag": "flag_name (optional)", "sets_flag": "flag_name (optional)"},\n'
+        '    ...\n'
+        '  ],\n'
+        '  "flags_set": ["flag_name", ...],\n'
+        '  "mood_delta": 0\n'
+        "}\n"
+        "Always include at least one farewell option. Provide 2-4 options total.\n"
+        "flags_set and mood_delta may be empty/zero."
+    )
+
+def _build_npc_user_prompt(card: dict, topic: str, history: list,
+                            player_flags: dict, relationship: int = 50) -> str:
+    history_lines = ""
+    for msg in history[-8:]:
+        speaker = card.get("name", "NPC") if msg.get("role") == "npc" else "Player"
+        history_lines += f"{speaker}: {msg.get('text', '')}\n"
+
+    known_flags = [k for k, v in player_flags.items() if v]
+    flag_text   = ", ".join(known_flags) if known_flags else "none"
+
+    return (
+        f"Topic: {topic}\n"
+        f"Player's standing with you: {relationship}/100\n"
+        f"Player flags you are aware of: {flag_text}\n\n"
+        f"Recent conversation:\n"
+        f"{history_lines.strip() or '(start of conversation)'}\n\n"
+        f"The player initiates: {topic}. Respond as {card.get('name', 'yourself')}."
+    )
+
+@app.post("/npc-dialogue")
+def npc_dialogue(req: NPCDialogueRequest):
+    api_key = profiles.get_api_key(req.profile_id)
+    if not api_key:
+        raise HTTPException(401, "not logged in")
+
+    card = npcs.get(req.npc_id) or _default_npc_card(req.npc_id, req.entity_prompt)
+
+    relationship = req.player_flags.get("__relationship__", 50)
+    system_prompt = _build_npc_system_prompt(card, req.world_state)
+    user_prompt   = _build_npc_user_prompt(card, req.topic, req.history,
+                                            req.player_flags, relationship)
+
+    persona = config.get("dungeon_theme_persona") or "Polly"
+    try:
+        raw = graydient_client.llm_query(user_prompt, system_prompt, api_key, persona)
+    except Exception as exc:
+        log.exception("[npc-dialogue] LLM failed for npc=%s", req.npc_id)
+        raise HTTPException(500, f"dialogue inference failed: {exc}")
+
+    try:
+        result = json.loads(raw)
+    except json.JSONDecodeError:
+        import re as _re
+        match = _re.search(r'\{.*\}', raw, _re.DOTALL)
+        if match:
+            try:
+                result = json.loads(match.group())
+            except json.JSONDecodeError:
+                result = None
+        else:
+            result = None
+
+    if not result:
+        result = {
+            "speech": raw[:300] if raw else "I have nothing to say.",
+            "options": [{"text": "Farewell.", "action": "farewell"}],
+            "flags_set": [],
+            "mood_delta": 0,
+        }
+
+    log.info("[npc-dialogue] npc=%s topic=%s speech=%.60s", req.npc_id, req.topic,
+             result.get("speech", ""))
+    return result
 
 
 # -- content packs --
