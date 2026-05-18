@@ -1076,6 +1076,9 @@ function _selectPickerExperience(id) {
   const exp = _pickerExperiences.find(e => e.id === id);
   if (!exp) return;
   _renderPickerDetail(exp);
+  // Show EXPORT PACK only for user-owned (non-locked) experiences
+  const exportBtn = document.getElementById('picker-pack-export-btn');
+  if (exportBtn) exportBtn.style.display = exp.locked ? 'none' : '';
 }
 
 function _renderPickerDetail(exp) {
@@ -1152,6 +1155,56 @@ document.getElementById('picker-import-btn').addEventListener('click', async () 
     document.getElementById('picker-import-input').value = '';
     setStatus(pickerStatusEl, 'saved', 'imported');
   } catch (e) { setStatus(pickerStatusEl, 'error', e.message); }
+});
+
+// Pack export — downloads the currently selected experience as a .dpack
+async function _exportPack(expId) {
+  setStatus(pickerStatusEl, 'saving', 'building pack…');
+  try {
+    const res = await fetch(`${FORGE_BASE}/packs/export/${encodeURIComponent(expId)}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `${expId}.dpack`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setStatus(pickerStatusEl, 'saved', 'pack downloaded');
+  } catch (e) { setStatus(pickerStatusEl, 'error', e.message); }
+}
+
+// Pack import — sends a .dpack file to the server and loads the result
+async function _importPack(file) {
+  setStatus(pickerStatusEl, 'saving', `importing ${file.name}…`);
+  try {
+    const res = await fetch(`${FORGE_BASE}/packs/import`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/zip' },
+      body:    file,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+    const result = await res.json();
+    // Refresh experience list and select the newly imported one
+    _pickerExperiences = await fetchExperiences(FORGE_BASE).catch(() => _pickerExperiences);
+    _renderPickerList();
+    _selectPickerExperience(result.experience_id);
+    setStatus(pickerStatusEl, 'saved',
+      `imported "${result.name}" · ${result.roster_count} entities · ${result.sprites_imported} sprites`);
+  } catch (e) { setStatus(pickerStatusEl, 'error', e.message); }
+}
+
+const _packImportInput  = document.getElementById('picker-pack-input');
+const _packImportBtn    = document.getElementById('picker-pack-import-btn');
+const _packExportBtn    = document.getElementById('picker-pack-export-btn');
+
+_packImportBtn.addEventListener('click', () => _packImportInput.click());
+_packImportInput.addEventListener('change', () => {
+  const file = _packImportInput.files?.[0];
+  if (file) { _importPack(file); _packImportInput.value = ''; }
+});
+_packExportBtn.addEventListener('click', () => {
+  if (_pickerSelectedId) _exportPack(_pickerSelectedId);
 });
 
 // Sync picked experiences list after terra save

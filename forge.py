@@ -17,15 +17,18 @@ and are read at job-creation time so changes take effect without restart.
 """
 
 import glob
+import io
 import json
 import logging
 import os
 import queue
 import random
 import subprocess
+import tempfile
 import threading
 import time
 import uuid
+import zipfile
 from io import BytesIO
 from typing import Optional
 
@@ -35,7 +38,7 @@ import dotenv
 import requests
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel
@@ -50,12 +53,14 @@ dotenv.load_dotenv()
 
 # ---------- paths ----------
 
-SPRITES_DIR = os.path.join(os.path.dirname(__file__), "sprites")
-GAME_DIR    = os.path.join(os.path.dirname(__file__), "game")
-HOST        = os.environ.get("FORGE_HOST", "127.0.0.1")
-PORT        = int(os.environ.get("FORGE_PORT", "8000"))
+SPRITES_DIR  = os.path.join(os.path.dirname(__file__), "sprites")
+GAME_DIR     = os.path.join(os.path.dirname(__file__), "game")
+CONTENT_DIR  = os.path.join(os.path.dirname(__file__), "content")
+HOST         = os.environ.get("FORGE_HOST", "127.0.0.1")
+PORT         = int(os.environ.get("FORGE_PORT", "8000"))
 
 os.makedirs(SPRITES_DIR, exist_ok=True)
+os.makedirs(CONTENT_DIR, exist_ok=True)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("forge")
@@ -1676,6 +1681,180 @@ def get_dungeon_theme(req: DungeonThemeRequest, request: Request):
 
     log.info("[dungeon-theme] generated for seed=%s exp=%s: %s", req.seed, req.experience_id, theme.get("dungeonName"))
     return theme
+
+
+# -- content packs --
+
+_PACK_VERSION = 1
+
+
+def _build_pack(exp_id: str) -> bytes:
+    """Assemble a .dpack ZIP for the given experience and return raw bytes."""
+    with _EXP_LOCK:
+        exps = _load_experiences()
+    exp = next((e for e in exps if e["id"] == exp_id), None)
+    if not exp:
+        raise HTTPException(404, "experience not found")
+
+    # Collect done entity jobs whose prompt appears in the experience spawn pool
+    spawn_pool = exp.get("entities", {}).get("spawnPool", [])
+    pool_names = {c.get("name", "").lower() for c in spawn_pool if c.get("name")}
+
+    with JOBS_LOCK:
+        done_jobs = [j for j in JOBS.values() if j.status == "done"]
+
+    # Match jobs to pool entries by name substring (best-effort)
+    roster = []
+    collected_sprites: dict[str, str] = {}  # sprite_name → file path
+
+    for job in done_jobs:
+        prompt_lower = job.prompt.lower()
+        matched = any(name in prompt_lower for name in pool_names) if pool_names else True
+        if not matched:
+            continue
+
+        entry: dict = {
+            "prompt": job.prompt,
+            "sprite_name": job.sprite_name,
+            "stats": job.entity_stats,
+            "is_boss": job.is_boss,
+            "tier": 0.5,
+            "variants": {},
+        }
+
+        if job.sprite_name:
+            path = os.path.join(SPRITES_DIR, job.sprite_name)
+            if os.path.exists(path):
+                collected_sprites[job.sprite_name] = path
+
+        # Include done variant sprites
+        with VARIANT_JOBS_LOCK:
+            for vtype, vjid in job.variant_job_ids.items():
+                vj = VARIANT_JOBS.get(vjid)
+                if vj and vj.status == "done" and vj.sprite_name:
+                    entry["variants"][vtype] = vj.sprite_name
+                    vpath = os.path.join(SPRITES_DIR, vj.sprite_name)
+                    if os.path.exists(vpath):
+                        collected_sprites[vj.sprite_name] = vpath
+
+        roster.append(entry)
+
+    exp_with_roster = {**exp, "roster": roster}
+
+    # Collect weapon types and their sprites
+    wt_list = weapons.get_all()
+    for wt in wt_list:
+        if wt.get("sprite_name"):
+            wpath = os.path.join(SPRITES_DIR, wt["sprite_name"])
+            if os.path.exists(wpath):
+                collected_sprites[wt["sprite_name"]] = wpath
+
+    manifest = {
+        "version": _PACK_VERSION,
+        "experience_id": exp_id,
+        "name": exp.get("name", exp_id),
+        "sprite_count": len(collected_sprites),
+        "roster_count": len(roster),
+        "created_at": int(time.time()),
+    }
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json", json.dumps(manifest, indent=2))
+        zf.writestr("experience.json", json.dumps(exp_with_roster, indent=2))
+        zf.writestr("weapons.json", json.dumps(wt_list, indent=2))
+        for sprite_name, sprite_path in collected_sprites.items():
+            zf.write(sprite_path, f"sprites/{sprite_name}")
+
+    return buf.getvalue()
+
+
+@app.get("/packs/export/{exp_id}")
+def export_pack(exp_id: str):
+    data = _build_pack(exp_id)
+    safe_id = exp_id.replace("/", "_").replace("..", "")
+    filename = f"{safe_id}.dpack"
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/packs/import")
+async def import_pack(request: Request):
+    body = await request.body()
+    if not body:
+        raise HTTPException(400, "empty body")
+
+    try:
+        buf = io.BytesIO(body)
+        with zipfile.ZipFile(buf, "r") as zf:
+            names = zf.namelist()
+
+            if "manifest.json" not in names:
+                raise HTTPException(400, "missing manifest.json")
+            manifest = json.loads(zf.read("manifest.json"))
+
+            if manifest.get("version", 0) > _PACK_VERSION:
+                raise HTTPException(400, f"pack version {manifest['version']} > server version {_PACK_VERSION}")
+
+            if "experience.json" not in names:
+                raise HTTPException(400, "missing experience.json")
+            exp = json.loads(zf.read("experience.json"))
+
+            wt_list = []
+            if "weapons.json" in names:
+                wt_list = json.loads(zf.read("weapons.json"))
+
+            # Extract sprites
+            imported_sprites = []
+            for name in names:
+                if name.startswith("sprites/") and name.endswith(".png"):
+                    sprite_name = name[len("sprites/"):]
+                    if "/" in sprite_name or ".." in sprite_name:
+                        continue
+                    dest = os.path.join(SPRITES_DIR, sprite_name)
+                    if not os.path.exists(dest):
+                        with open(dest, "wb") as f:
+                            f.write(zf.read(name))
+                        imported_sprites.append(sprite_name)
+
+            # Import weapon types (skip existing ids)
+            imported_weapons = 0
+            for wt in wt_list:
+                if wt.get("id") and not weapons.get(wt["id"]):
+                    weapons.upsert(wt)
+                    imported_weapons += 1
+
+            # Import experience with a fresh id to avoid collisions
+            exp["id"] = str(uuid.uuid4())
+            exp["locked"] = False
+            exp["author"] = "player"
+            with _EXP_LOCK:
+                exps = _load_experiences()
+                exps.append(exp)
+                _save_experiences(exps)
+
+    except (zipfile.BadZipFile, KeyError, json.JSONDecodeError) as exc:
+        raise HTTPException(400, f"invalid pack: {exc}")
+
+    return {
+        "experience_id": exp["id"],
+        "name": exp.get("name"),
+        "sprites_imported": len(imported_sprites),
+        "weapons_imported": imported_weapons,
+        "roster_count": len(exp.get("roster", [])),
+    }
+
+
+@app.get("/packs/starter")
+def get_starter_pack():
+    path = os.path.join(CONTENT_DIR, "starter.dpack")
+    if not os.path.exists(path):
+        raise HTTPException(404, "no starter pack installed")
+    return FileResponse(path, media_type="application/zip",
+                        headers={"Content-Disposition": 'attachment; filename="starter.dpack"'})
 
 
 # -- static assets --

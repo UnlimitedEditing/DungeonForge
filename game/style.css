@@ -2388,6 +2388,10 @@ button:disabled { opacity: 0.4; cursor: wait; }
   outline: none;
 }
 .picker-import-row input:focus { border-bottom-color: var(--amber); }
+.picker-pack-row { display: flex; gap: 8px; align-items: center; }
+.picker-pack-import-btn { color: var(--amber-dim); }
+.picker-pack-export-btn { border-color: var(--ok); color: var(--ok); }
+.picker-pack-export-btn:hover { background: rgba(80,200,120,0.1); border-color: var(--ok); }
 .picker-status { font-size: 14px; min-height: 18px; }
 .picker-status[data-state="saving"] { color: var(--amber-dim); }
 .picker-status[data-state="saved"]  { color: var(--ok); }
